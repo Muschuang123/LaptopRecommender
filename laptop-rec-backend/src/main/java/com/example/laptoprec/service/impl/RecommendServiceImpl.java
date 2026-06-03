@@ -15,13 +15,20 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -65,9 +72,10 @@ public class RecommendServiceImpl implements RecommendService {
         Map<Long, LaptopDetailVO> detailById = new LinkedHashMap<>();
 
         for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
-            JsonNode response = callDeepSeek(messages);
+            JsonNode response = callDeepSeek(messages, true);
             JsonNode message = response.path("choices").path(0).path("message");
             JsonNode toolCalls = message.path("tool_calls");
+            String finishReason = response.path("choices").path(0).path("finish_reason").asText("");
             if (toolCalls.isArray() && toolCalls.size() > 0) {
                 messages.add(objectMapper.convertValue(message, MAP_TYPE));
                 for (JsonNode toolCall : toolCalls) {
@@ -75,14 +83,23 @@ public class RecommendServiceImpl implements RecommendService {
                 }
                 continue;
             }
+            if (!"stop".equals(finishReason)) {
+                messages.add(Map.of(
+                        "role", "user",
+                        "content", "请等待推理完成后，只输出最终严格 JSON。不要输出 reasoning_content。"
+                ));
+                continue;
+            }
             return buildFinalResponse(message.path("content").asText(""), lastSearchResults, detailById);
         }
 
-        RecommendChatVO response = new RecommendChatVO();
-        response.setRecommendations(buildFallbackRecommendations(lastSearchResults, detailById));
-        response.setFollowUpQuestions(defaultFollowUpQuestions());
-        response.setReply(buildDatabaseReply(response.getRecommendations(), response.getFollowUpQuestions(), null));
-        return response;
+        messages.add(Map.of(
+                "role", "user",
+                "content", "工具调用轮数已达上限。请基于已有工具结果输出最终严格 JSON；如果没有完全满足条件的数据库机型，请在 reply 中说明，并用 followUpQuestions 询问是否放宽条件。recommendations 只能使用工具返回过的 laptopId。不要再调用工具。"
+        ));
+        JsonNode response = callDeepSeek(messages, false);
+        JsonNode message = response.path("choices").path(0).path("message");
+        return buildFinalResponse(message.path("content").asText(""), lastSearchResults, detailById);
     }
 
     private void validateConfig() {
@@ -97,9 +114,7 @@ public class RecommendServiceImpl implements RecommendService {
         }
         List<RecommendMessageDTO> sourceMessages = request.getMessages();
         List<Map<String, Object>> messages = new ArrayList<>();
-        if (isNewConversation(sourceMessages)) {
-            messages.add(Map.of("role", "system", "content", systemPrompt()));
-        }
+        messages.add(Map.of("role", "system", "content", systemPrompt()));
 
         int start = Math.max(0, sourceMessages.size() - MAX_HISTORY_MESSAGES);
         for (int i = start; i < sourceMessages.size(); i++) {
@@ -117,36 +132,23 @@ public class RecommendServiceImpl implements RecommendService {
         return messages;
     }
 
-    private boolean isNewConversation(List<RecommendMessageDTO> messages) {
-        int userMessageCount = 0;
-        for (RecommendMessageDTO message : messages) {
-            if ("user".equals(normalizeText(message.getRole())) && normalizeText(message.getContent()) != null) {
-                userMessageCount++;
-            }
-        }
-        return userMessageCount <= 1;
-    }
-
     private String systemPrompt() {
         return """
-                你是笔记本电脑推荐系统的中文导购 Agent。
-                你只能通过工具查询本系统数据库，不能编造数据库中不存在的机型、价格或参数。
-                不要引用外部评测、实时价格或本系统数据库之外的机型信息。
-                可以基于你对 CPU、GPU、内存、屏幕、重量、接口等硬件的一般知识，对工具返回的数据库机型做具体评价；但机型、价格和参数必须以工具返回数据为准。
-                recommendations 只能使用本轮工具返回过的 laptop id，不得输出工具结果中没有的型号或 id。
-                recommendations 中每一条 reason 必须评价同一个 laptopId 对应的机型，不要把 A 机型的参数或结论写到 B 机型。
-                reason 要具体说明为什么适合或不适合用户需求，尽量覆盖性能、显卡/游戏或创作能力、便携性、屏幕、内存/硬盘、价格取舍中的相关项。
-                如果用户信息不足，先追问预算、用途、便携性、游戏/显卡需求和品牌偏好。
-                如果信息足够，先调用 search_laptops 查询候选，再调用 get_laptop_detail 获取最终推荐机型详情。
-                最终回答必须是严格 JSON 对象，不要使用 Markdown 代码块，格式如下：
+                你是中文笔记本推荐 Agent。只能推荐工具返回过的数据库机型；机型、价格、参数以工具结果为准，不编造。
+                信息不足时追问预算、用途、便携性、显卡/游戏需求、品牌偏好。信息足够时先 search_laptops，再对最终推荐调用 get_laptop_detail。
+                连续搜索仍无结果时停止调用工具，说明数据库没有完全满足条件的机型，并询问是否放宽预算、品牌、年份或显卡要求，你最多使用 4 轮工具调用来查询数据库。
+                注意数据库中含有最新机型的相关数据，可以试探性地搜索新型号配件。
+                最终只输出严格 JSON，不要 Markdown，不要 reasoning_content，不要在 reply 里写“还需要确认：”列表。
+                recommendations 最多 10 条，laptopId 必须来自本轮工具结果；每条必须有非空字符串 reason，且只评价同一 laptopId。
+                reason 可基于通用硬件知识评价性能、显卡/游戏或创作、便携、屏幕、内存/硬盘、价格取舍，但不得引用外部评测或数据库外机型。
+                JSON 格式：
                 {
-                  "reply": "面向用户的中文说明；如果需要追问，就说明还缺什么信息。",
+                  "reply": "简短中文说明，只概括推荐方向，不逐项复述每台机器参数。",
                   "recommendations": [
                     {"laptopId": 1, "reason": "针对该 laptopId 的具体推荐理由"}
                   ],
                   "followUpQuestions": ["需要继续追问的问题"]
                 }
-                推荐数量最多 10 台，超出 10 台将被截断，不会被纳入答案中。
                 """;
     }
 
@@ -158,12 +160,14 @@ public class RecommendServiceImpl implements RecommendService {
         throw new IllegalArgumentException("只支持 user 或 assistant 角色消息");
     }
 
-    private JsonNode callDeepSeek(List<Map<String, Object>> messages) {
+    private JsonNode callDeepSeek(List<Map<String, Object>> messages, boolean enableTools) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", deepSeekProperties.getModel());
         body.put("messages", messages);
-        body.put("tools", buildTools());
-        body.put("tool_choice", "auto");
+        if (enableTools) {
+            body.put("tools", buildTools());
+            body.put("tool_choice", "auto");
+        }
         body.put("temperature", 0.3);
         body.put("max_tokens", 3500);
 
@@ -182,7 +186,28 @@ public class RecommendServiceImpl implements RecommendService {
         if (response == null || response.path("choices").isEmpty()) {
             throw new IllegalStateException("DeepSeek 未返回有效推荐结果");
         }
+        appendDeepSeekResponseLog(response);
         return response;
+    }
+
+    private void appendDeepSeekResponseLog(JsonNode response) {
+        try {
+            Files.createDirectories(Path.of("logs"));
+            Path logPath = Path.of("logs", "deepseek-chat-" + LocalDate.now() + ".jsonl");
+            ObjectNode record = objectMapper.createObjectNode();
+            record.put("createdAt", LocalDateTime.now().toString());
+            record.put("model", deepSeekProperties.getModel());
+            record.set("response", response);
+            Files.writeString(
+                    logPath,
+                    objectMapper.writeValueAsString(record) + System.lineSeparator(),
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND
+            );
+        } catch (Exception exception) {
+            // DeepSeek debug logs are best-effort and must not break recommendations.
+        }
     }
 
     private List<Map<String, Object>> buildTools() {
@@ -318,13 +343,31 @@ public class RecommendServiceImpl implements RecommendService {
         query.setSize(clamp(intArg(arguments, "size"), 1, MAX_TOOL_RESULTS, MAX_TOOL_RESULTS));
 
         PageResult<LaptopListItemVO> page = laptopService.queryLaptops(query);
-        lastSearchResults.clear();
-        lastSearchResults.addAll(page.getRecords());
+        mergeSearchResults(lastSearchResults, page.getRecords());
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", page.getTotal());
         result.put("records", page.getRecords());
         return result;
+    }
+
+    private void mergeSearchResults(List<LaptopListItemVO> target, List<LaptopListItemVO> records) {
+        if (records == null || records.isEmpty()) {
+            return;
+        }
+        Set<Long> seenIds = new LinkedHashSet<>();
+        for (LaptopListItemVO item : target) {
+            if (item.getId() != null) {
+                seenIds.add(item.getId());
+            }
+        }
+        for (LaptopListItemVO item : records) {
+            if (item.getId() == null || seenIds.contains(item.getId())) {
+                continue;
+            }
+            target.add(item);
+            seenIds.add(item.getId());
+        }
     }
 
     private LaptopDetailVO getLaptopDetail(JsonNode arguments, Map<Long, LaptopDetailVO> detailById) {
@@ -345,8 +388,8 @@ public class RecommendServiceImpl implements RecommendService {
         RecommendChatVO response = new RecommendChatVO();
         JsonNode json = parseJsonObjectContent(content);
         List<RecommendationVO> recommendations = json == null
-                ? buildFallbackRecommendations(lastSearchResults, detailById)
-                : readRecommendations(json.path("recommendations"), lastSearchResults, detailById);
+                ? Collections.emptyList()
+                : readRecommendations(json.path("recommendations"), lastSearchResults, detailById, json.path("reply").asText(null));
         List<String> followUpQuestions = json == null
                 ? Collections.emptyList()
                 : readStringArray(json.path("followUpQuestions"));
@@ -366,36 +409,11 @@ public class RecommendServiceImpl implements RecommendService {
             String modelReply
     ) {
         if (recommendations != null && !recommendations.isEmpty()) {
-            StringBuilder builder = new StringBuilder("我只根据数据库中的机型给出推荐：");
-            for (int i = 0; i < recommendations.size(); i++) {
-                RecommendationVO recommendation = recommendations.get(i);
-                LaptopDetailVO detail = recommendation.getDetail();
-                if (detail == null) {
-                    continue;
-                }
-                builder.append("\n")
-                        .append(i + 1)
-                        .append(". ")
-                        .append(laptopName(detail))
-                        .append("：")
-                        .append("价格 ")
-                        .append(formatMoney(detail.getLatestPrice()))
-                        .append("，CPU ")
-                        .append(text(detail.getCpuModel()))
-                        .append("，GPU ")
-                        .append(text(detail.getGpuModel()))
-                        .append("，内存 ")
-                        .append(formatGb(detail.getMemoryCapacityGb()))
-                        .append("，硬盘 ")
-                        .append(formatGb(detail.getStorageCapacityGb()))
-                        .append("，屏幕 ")
-                        .append(formatScreen(detail))
-                        .append("，重量 ")
-                        .append(formatWeight(detail.getWeightKg()))
-                        .append("。推荐原因：")
-                        .append(recommendation.getReason());
+            String naturalReply = normalizeNaturalReply(modelReply);
+            if (!isBlank(naturalReply)) {
+                return appendFollowUpQuestions(naturalReply, followUpQuestions);
             }
-            return builder.toString();
+            return buildCompactRecommendationReply(recommendations);
         }
 
         String naturalReply = normalizeNaturalReply(modelReply);
@@ -409,10 +427,18 @@ public class RecommendServiceImpl implements RecommendService {
     }
 
     private String appendFollowUpQuestions(String reply, List<String> followUpQuestions) {
-        if (followUpQuestions == null || followUpQuestions.isEmpty()) {
-            return reply;
+        return removeInlineFollowUpQuestions(reply);
+    }
+
+    private String removeInlineFollowUpQuestions(String reply) {
+        String text = normalizeText(reply);
+        if (text == null) {
+            return "";
         }
-        return reply + "\n\n还需要确认：" + String.join("；", followUpQuestions);
+        return text
+                .replaceAll("(?s)\\n+\\s*还需要确认[:：].*$", "")
+                .replaceAll("(?s)还需要确认[:：].*$", "")
+                .trim();
     }
 
     private String normalizeNaturalReply(String reply) {
@@ -420,7 +446,7 @@ public class RecommendServiceImpl implements RecommendService {
         if (text == null || looksLikeJson(text)) {
             return null;
         }
-        return text;
+        return removeInlineFollowUpQuestions(text);
     }
 
     private boolean looksLikeJson(String text) {
@@ -432,39 +458,26 @@ public class RecommendServiceImpl implements RecommendService {
         return List.of("你的预算上限是多少？", "主要用途是办公、编程、游戏还是设计？", "是否有便携性或品牌偏好？");
     }
 
+    private String buildCompactRecommendationReply(List<RecommendationVO> recommendations) {
+        StringBuilder builder = new StringBuilder("推荐这几款：");
+        for (int i = 0; i < recommendations.size(); i++) {
+            RecommendationVO recommendation = recommendations.get(i);
+            LaptopDetailVO detail = recommendation.getDetail();
+            if (detail == null) {
+                continue;
+            }
+            builder.append("\n")
+                    .append(i + 1)
+                    .append(". ")
+                    .append(laptopName(detail))
+                    .append("：")
+                    .append(recommendation.getReason());
+        }
+        return builder.toString();
+    }
+
     private String laptopName(LaptopDetailVO detail) {
         return joinText(detail.getBrandName(), detail.getModel(), " ");
-    }
-
-    private String formatMoney(BigDecimal value) {
-        if (value == null) {
-            return "未知";
-        }
-        return "￥" + value.stripTrailingZeros().toPlainString();
-    }
-
-    private String formatGb(Integer value) {
-        return value == null ? "未知" : value + "GB";
-    }
-
-    private String formatWeight(BigDecimal value) {
-        if (value == null) {
-            return "未知";
-        }
-        return value.stripTrailingZeros().toPlainString() + "kg";
-    }
-
-    private String formatScreen(LaptopDetailVO detail) {
-        String size = detail.getScreenSizeInch() == null
-                ? "尺寸未知"
-                : detail.getScreenSizeInch().stripTrailingZeros().toPlainString() + "英寸";
-        String resolution = text(detail.getScreenResolution());
-        String refreshRate = detail.getScreenRefreshRateHz() == null ? null : detail.getScreenRefreshRateHz() + "Hz";
-        return joinText(joinText(size, resolution, " "), refreshRate, " ");
-    }
-
-    private String text(String value) {
-        return isBlank(value) ? "未知" : value.trim();
     }
 
     private String joinText(String left, String right, String separator) {
@@ -555,7 +568,8 @@ public class RecommendServiceImpl implements RecommendService {
     private List<RecommendationVO> readRecommendations(
             JsonNode node,
             List<LaptopListItemVO> lastSearchResults,
-            Map<Long, LaptopDetailVO> detailById
+            Map<Long, LaptopDetailVO> detailById,
+            String modelReply
     ) {
         List<RecommendationVO> recommendations = new ArrayList<>();
         Set<Long> usedIds = new LinkedHashSet<>();
@@ -576,16 +590,16 @@ public class RecommendServiceImpl implements RecommendService {
                 }
                 RecommendationVO recommendation = new RecommendationVO();
                 recommendation.setLaptopId(laptopId);
-                recommendation.setReason(readRecommendationReason(item));
+                recommendation.setReason(readRecommendationReason(item, detail, modelReply));
                 recommendation.setDetail(detail);
                 recommendations.add(recommendation);
                 usedIds.add(laptopId);
             }
         }
-        if (recommendations.isEmpty()) {
-            return buildFallbackRecommendations(lastSearchResults, detailById);
+        if (node.isArray()) {
+            return recommendations;
         }
-        return recommendations;
+        return Collections.emptyList();
     }
 
     private Set<Long> allowedRecommendationIds(List<LaptopListItemVO> lastSearchResults, Map<Long, LaptopDetailVO> detailById) {
@@ -622,22 +636,133 @@ public class RecommendServiceImpl implements RecommendService {
             }
             RecommendationVO recommendation = new RecommendationVO();
             recommendation.setLaptopId(id);
-            recommendation.setReason("模型未返回该机型的有效推荐理由，请结合数据库详情继续比较。");
+            recommendation.setReason(buildFallbackReason(detail));
             recommendation.setDetail(detail);
             recommendations.add(recommendation);
         }
         return recommendations;
     }
 
-    private String readRecommendationReason(JsonNode item) {
-        String reason = normalizeText(item.path("reason").asText(null));
+    private String buildFallbackReason(LaptopDetailVO detail) {
+        if (detail == null) {
+            return "可作为当前需求下的候选机型，建议结合右侧详情继续比较。";
+        }
+        String usage = normalizeText(detail.getUsagePositioning());
+        if (usage != null) {
+            return "数据库将它标记为“" + usage + "”定位，可作为当前需求下的候选机型继续比较。";
+        }
+        String productType = normalizeText(detail.getProductType());
+        if (productType != null) {
+            return "这是一款“" + productType + "”机型，可结合预算、性能和便携性继续比较。";
+        }
+        return "可作为当前需求下的候选机型，建议结合右侧详情继续比较。";
+    }
+
+    private String readRecommendationReason(JsonNode item, LaptopDetailVO detail, String modelReply) {
+        String reason = firstReasonText(
+                item.path("reason"),
+                item.path("recommendReason"),
+                item.path("recommendationReason"),
+                item.path("evaluation"),
+                item.path("comment"),
+                item.path("rationale"),
+                item.path("why")
+        );
+        if (reason == null) {
+            reason = extractReasonFromReply(modelReply, detail);
+        }
         if (reason == null || looksLikeJson(reason)) {
-            return "模型未返回该机型的有效推荐理由，请结合数据库详情继续比较。";
+            return buildFallbackReason(detail);
         }
         if (reason.length() > MAX_REASON_LENGTH) {
             return reason.substring(0, MAX_REASON_LENGTH).trim();
         }
         return reason;
+    }
+
+    private String firstReasonText(JsonNode... nodes) {
+        for (JsonNode node : nodes) {
+            if (node == null || node.isMissingNode() || node.isNull()) {
+                continue;
+            }
+            String value = normalizeReasonNode(node);
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeReasonNode(JsonNode node) {
+        if (node.isTextual() || node.isNumber() || node.isBoolean()) {
+            return normalizeText(node.asText(null));
+        }
+        if (node.isArray()) {
+            List<String> parts = new ArrayList<>();
+            for (JsonNode item : node) {
+                String value = normalizeReasonNode(item);
+                if (value != null) {
+                    parts.add(value);
+                }
+            }
+            return parts.isEmpty() ? null : String.join("；", parts);
+        }
+        if (node.isObject()) {
+            List<String> parts = new ArrayList<>();
+            for (JsonNode value : node) {
+                String text = normalizeReasonNode(value);
+                if (text != null) {
+                    parts.add(text);
+                }
+            }
+            return parts.isEmpty() ? null : String.join("；", parts);
+        }
+        return null;
+    }
+
+    private String extractReasonFromReply(String modelReply, LaptopDetailVO detail) {
+        String reply = normalizeText(modelReply);
+        if (reply == null || detail == null) {
+            return null;
+        }
+        String model = normalizeText(detail.getModel());
+        String brand = normalizeText(detail.getBrandName());
+        List<String> anchors = new ArrayList<>();
+        if (model != null) {
+            anchors.add(model);
+        }
+        if (brand != null && model != null) {
+            anchors.add(brand + " " + model);
+        }
+        for (String anchor : anchors) {
+            int index = reply.indexOf(anchor);
+            if (index < 0) {
+                continue;
+            }
+            int start = reply.indexOf('：', index);
+            if (start < 0) {
+                start = reply.indexOf(':', index);
+            }
+            if (start < 0) {
+                start = index + anchor.length();
+            } else {
+                start++;
+            }
+            int end = nextRecommendationBoundary(reply, start);
+            return normalizeText(reply.substring(start, end));
+        }
+        return null;
+    }
+
+    private int nextRecommendationBoundary(String text, int start) {
+        int end = text.length();
+        for (String marker : List.of("\n1.", "\n2.", "\n3.", "\n4.", "\n5.", "\n6.", "\n7.", "\n8.", "\n9.", "\n10.")) {
+            int index = text.indexOf(marker, start);
+            if (index >= 0) {
+                end = Math.min(end, index);
+            }
+        }
+        return end;
     }
 
     private LaptopDetailVO loadDetail(Long id, Map<Long, LaptopDetailVO> detailById) {

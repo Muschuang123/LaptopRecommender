@@ -426,14 +426,16 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
       ...session,
       title: buildSessionTitle(outgoing),
       messages: outgoing,
+      result: null,
+      selectedRecommendationKey: "",
       updatedAt: Date.now()
     }));
     setInput("");
     setPending(true);
 
     try {
-      const response = await chatRecommend(outgoing);
-      const reply = normalizeAssistantReply(response.reply);
+      const response = await chatRecommend(buildChatRequestMessages(outgoing));
+      const reply = normalizeAssistantReply(response.reply, response.recommendations?.length > 0);
       const normalizedResult = { ...response, reply };
       updateSession(sessionId, (session) => ({
         ...session,
@@ -844,7 +846,9 @@ function normalizeRecommendSession(value: unknown): RecommendSession | null {
   if (!isObject(value) || typeof value.id !== "string") {
     return null;
   }
-  const messages = Array.isArray(value.messages) ? value.messages.filter(isChatMessage) : initialRecommendMessages;
+  const messages = Array.isArray(value.messages)
+    ? value.messages.map(normalizeStoredChatMessage).filter((message): message is ChatMessage => message !== null)
+    : initialRecommendMessages;
   return {
     id: value.id,
     title: typeof value.title === "string" && value.title.trim() ? value.title.trim() : buildSessionTitle(messages),
@@ -866,6 +870,28 @@ function buildSessionTitle(messages: ChatMessage[]) {
     return "新对话";
   }
   return firstUserMessage.length > 22 ? `${firstUserMessage.slice(0, 22)}...` : firstUserMessage;
+}
+
+function buildChatRequestMessages(messages: ChatMessage[]) {
+  return messages
+    .map((message) => ({ role: message.role, content: message.content.trim() }))
+    .filter(
+      (message) =>
+        (message.role === "user" || message.role === "assistant") &&
+        message.content &&
+        !isToolTraceMessage(message)
+    );
+}
+
+function normalizeStoredChatMessage(value: unknown): ChatMessage | null {
+  if (!isChatMessage(value) || isToolTraceMessage(value)) {
+    return null;
+  }
+  if (value.role === "assistant") {
+    const content = normalizeAssistantReply(value.content);
+    return isToolTraceContent(content) ? null : { role: value.role, content };
+  }
+  return { role: value.role, content: value.content.trim() };
 }
 
 function isChatMessage(value: unknown): value is ChatMessage {
@@ -901,8 +927,10 @@ function recommendationName(recommendation: RecommendResponse["recommendations"]
   return `机型 #${recommendation.laptopId}`;
 }
 
-function normalizeAssistantReply(reply?: string) {
-  const fallback = "我已根据数据库结果整理推荐，具体机型请看右侧推荐卡片。";
+function normalizeAssistantReply(reply?: string, hasRecommendations = false) {
+  const fallback = hasRecommendations
+    ? "我已根据数据库结果整理推荐，具体机型请看右侧推荐卡片。"
+    : "当前条件下没有查到合适的数据库候选，请放宽预算、品牌、显卡或年份要求后再试。";
   const raw = reply?.trim();
   if (!raw) {
     return fallback;
@@ -910,6 +938,9 @@ function normalizeAssistantReply(reply?: string) {
 
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const normalized = fenced?.[1]?.trim() ?? raw;
+  if (isToolTraceContent(normalized)) {
+    return fallback;
+  }
   const candidates = [normalized];
   const firstBrace = normalized.indexOf("{");
   const lastBrace = normalized.lastIndexOf("}");
@@ -928,10 +959,45 @@ function normalizeAssistantReply(reply?: string) {
     }
   }
 
-  if (normalized.startsWith("{") || normalized.startsWith("[") || normalized.includes('"recommendations"')) {
+  if (
+    normalized.startsWith("{") ||
+    normalized.startsWith("[") ||
+    normalized.includes('"recommendations"') ||
+    normalized.includes('"records"') ||
+    normalized.includes('"total"')
+  ) {
     return fallback;
   }
   return normalized;
+}
+
+function isToolTraceMessage(message: ChatMessage) {
+  return message.role === "assistant" && isToolTraceContent(message.content);
+}
+
+function isToolTraceContent(content: string) {
+  const normalized = content.trim();
+  if (!normalized) {
+    return false;
+  }
+  return [
+    '"tool_calls"',
+    '"reasoning_content"',
+    '"finish_reason":"tool_calls"',
+    '"finish_reason": "tool_calls"',
+    '"role":"tool"',
+    '"role": "tool"',
+    '"function":{"name":"search_laptops"',
+    '"function": {"name": "search_laptops"',
+    '"function":{"name":"get_laptop_detail"',
+    '"function": {"name": "get_laptop_detail"',
+    '"records"',
+    '"total"',
+    '"laptopId"',
+    '"detail"',
+    'search_laptops',
+    'get_laptop_detail'
+  ].some((marker) => normalized.includes(marker));
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
