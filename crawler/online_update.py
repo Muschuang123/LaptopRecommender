@@ -10,7 +10,7 @@ from pathlib import Path
 from .cli import _dedupe_by_url
 from .http_client import HttpClient
 from .normalizer import LaptopDataNormalizer
-from .sources.zol import ZOL_NOTEBOOK_RANK_ROOT_URL, ZolHotRankCrawler, ZolNotebookRankCrawler
+from .sources.zol import ZolNotebookRankCrawler
 from .sql_writer import SafeOnlineMySqlSqlWriter
 
 
@@ -21,10 +21,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-details", type=int, default=None, help="Maximum parameter pages to crawl.")
     parser.add_argument("--delay", type=float, default=1.2, help="Delay between HTTP requests, seconds.")
     parser.add_argument("--output-dir", default="data/crawl_output")
-    parser.add_argument("--zol-rank-root-url", default=ZOL_NOTEBOOK_RANK_ROOT_URL)
-    parser.add_argument("--zol-hot-rank-url", default=None, help="Deprecated: crawl one rank page only.")
     parser.add_argument("--execute", action="store_true", help="Execute generated safe SQL with mysql client.")
+    parser.add_argument("--init-schema", action="store_true", help="Create database and import sql/schema.sql before update.")
     parser.add_argument("--mysql-bin", default="mysql", help="mysql executable path.")
+    parser.add_argument("--schema", default="sql/schema.sql", help="Schema SQL path used with --init-schema.")
     parser.add_argument(
         "--spring-config",
         default="laptop-rec-backend/application-local.yml",
@@ -97,29 +97,27 @@ def resolve_database_args(args: argparse.Namespace) -> None:
     args.db_password = os.getenv("MYSQL_PWD") or datasource.get("password")
 
 
-def crawl_normalized_items(
-    max_details: int | None,
-    delay: float,
-    rank_root_url: str,
-    hot_rank_url: str | None = None,
-) -> tuple[list, list[dict]]:
+def crawl_normalized_items(max_details: int | None, delay: float) -> tuple[list, list[dict]]:
     client = HttpClient(delay_seconds=delay)
-    if hot_rank_url:
-        crawler = ZolHotRankCrawler(client, hot_rank_url=hot_rank_url)
-    else:
-        crawler = ZolNotebookRankCrawler(client, rank_root_url=rank_root_url)
-    raw_items = crawler.crawl(max_details=max_details)
+    raw_items = ZolNotebookRankCrawler(client).crawl(max_details=max_details)
     raw_items = _dedupe_by_url(raw_items)
     normalizer = LaptopDataNormalizer()
     return raw_items, [normalizer.normalize(item) for item in raw_items]
 
 
-def execute_mysql(sql_path: Path, args: argparse.Namespace) -> None:
+def mysql_env(args: argparse.Namespace) -> dict[str, str]:
+    env = os.environ.copy()
+    if args.db_password and "MYSQL_PWD" not in env:
+        env["MYSQL_PWD"] = args.db_password
+    return env
+
+
+def base_mysql_command(args: argparse.Namespace) -> list[str]:
     if not args.db_user or not args.db_name:
         raise RuntimeError(
             "执行 SQL 需要数据库配置。请检查 application-local.yml，或设置 MYSQL_USER / MYSQL_DATABASE。"
         )
-    command = [
+    return [
         args.mysql_bin,
         "--default-character-set=utf8mb4",
         "-h",
@@ -128,13 +126,29 @@ def execute_mysql(sql_path: Path, args: argparse.Namespace) -> None:
         str(args.db_port),
         "-u",
         args.db_user,
-        args.db_name,
     ]
-    env = os.environ.copy()
-    if args.db_password and "MYSQL_PWD" not in env:
-        env["MYSQL_PWD"] = args.db_password
+
+
+def quote_mysql_identifier(name: str) -> str:
+    return f"`{name.replace('`', '``')}`"
+
+
+def init_database_schema(args: argparse.Namespace) -> None:
+    schema_path = Path(args.schema)
+    if not schema_path.exists():
+        raise RuntimeError(f"找不到 schema 文件: {schema_path}")
+    create_sql = (
+        f"CREATE DATABASE IF NOT EXISTS {quote_mysql_identifier(args.db_name)} "
+        "DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+    )
+    subprocess.run(base_mysql_command(args) + ["-e", create_sql], env=mysql_env(args), check=True)
+    with schema_path.open("rb") as schema_file:
+        subprocess.run(base_mysql_command(args) + [args.db_name], stdin=schema_file, env=mysql_env(args), check=True)
+
+
+def execute_mysql(sql_path: Path, args: argparse.Namespace) -> None:
     with sql_path.open("rb") as sql_file:
-        subprocess.run(command, stdin=sql_file, env=env, check=True)
+        subprocess.run(base_mysql_command(args) + [args.db_name], stdin=sql_file, env=mysql_env(args), check=True)
 
 
 def main() -> None:
@@ -143,12 +157,10 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_items, normalized_items = crawl_normalized_items(
-        max_details=args.max_details,
-        delay=args.delay,
-        rank_root_url=args.zol_rank_root_url,
-        hot_rank_url=args.zol_hot_rank_url,
-    )
+    if args.init_schema and not args.execute:
+        raise RuntimeError("--init-schema 需要同时使用 --execute。")
+
+    raw_items, normalized_items = crawl_normalized_items(max_details=args.max_details, delay=args.delay)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     raw_path = output_dir / f"laptops_raw_{timestamp}.json"
@@ -163,6 +175,8 @@ def main() -> None:
     SafeOnlineMySqlSqlWriter().write(normalized_items, sql_path)
 
     if args.execute:
+        if args.init_schema:
+            init_database_schema(args)
         execute_mysql(sql_path, args)
         status = "executed"
     else:

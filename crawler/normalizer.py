@@ -8,42 +8,91 @@ from .models import LaptopRawItem
 
 
 BRAND_ALIASES = [
+    ("Terrans Force", "Terrans Force（未来人类）"),
+    ("ONE-NETBOOK", "ONE-NETBOOK（壹号本）"),
+    ("ThinkBook", "ThinkBook"),
     ("ThinkPad", "ThinkPad"),
     ("Alienware", "Alienware"),
-    ("MacBook", "Apple"),
+    ("MACHENIKE", "MACHENIKE（机械师）"),
+    ("METAPHYUNI", "METAPHYUNI（玄派）"),
+    ("Thunderobot", "雷神"),
+    ("GIGABYTE", "GIGABYTE（技嘉）"),
+    ("Great Wall", "Great Wall（长城）"),
+    ("Colorful", "七彩虹"),
+    ("Panasonic", "Panasonic（松下）"),
+    ("Microsoft", "微软"),
+    ("MECHREVO", "机械革命"),
+    ("Shinelon", "Shinelon（炫龙）"),
+    ("IPASON", "攀升IPASON"),
+    ("AORUS", "GIGABYTE（技嘉）"),
+    ("Xiaomi", "小米"),
+    ("jumper", "中柏"),
+    ("Razer", "Razer（雷蛇）"),
+    ("realme", "realme"),
+    ("Samsung", "三星"),
+    ("Acer", "Acer宏碁"),
     ("Apple", "Apple"),
+    ("MacBook", "Apple"),
+    ("Redmi", "Redmi"),
+    ("HUWI", "HUWI"),
+    ("HUAWEI", "华为"),
+    ("HONOR", "荣耀"),
+    ("ASUS", "华硕"),
+    ("CUBE", "CUBE（酷比魔方）"),
+    ("GPD", "GPD"),
+    ("H3C", "H3C"),
+    ("VAIO", "VAIO"),
+    ("WIKO", "WIKO"),
     ("苹果", "Apple"),
     ("lenovo", "联想"),
     ("联想", "联想"),
     ("来酷", "来酷"),
-    ("LeCool", "来酷"),
+    ("Lecoo", "来酷"),
     ("惠普", "惠普"),
     ("HP", "惠普"),
     ("戴尔", "戴尔"),
     ("DELL", "戴尔"),
     ("华为", "华为"),
-    ("HUAWEI", "华为"),
     ("荣耀", "荣耀"),
-    ("HONOR", "荣耀"),
     ("ROG", "ROG"),
     ("华硕", "华硕"),
-    ("ASUS", "华硕"),
     ("机械革命", "机械革命"),
-    ("MECHREVO", "机械革命"),
-    ("Acer", "Acer宏碁"),
     ("宏碁", "Acer宏碁"),
     ("微星", "微星"),
     ("MSI", "微星"),
     ("小米", "小米"),
-    ("Redmi", "Redmi"),
     ("雷神", "雷神"),
     ("神舟", "神舟"),
-    ("Microsoft", "微软"),
     ("微软", "微软"),
     ("LG", "LG"),
-    ("Samsung", "三星"),
     ("三星", "三星"),
+    ("七彩虹", "七彩虹"),
+    ("未来人类", "Terrans Force（未来人类）"),
+    ("松下", "Panasonic（松下）"),
+    ("技嘉", "GIGABYTE（技嘉）"),
+    ("清华同方", "清华同方"),
+    ("火影", "火影"),
+    ("吾空", "吾空"),
+    ("玄派", "METAPHYUNI（玄派）"),
+    ("机械师", "MACHENIKE（机械师）"),
+    ("中柏", "中柏"),
+    ("酷比魔方", "CUBE（酷比魔方）"),
+    ("攀升", "攀升IPASON"),
+    ("浪潮", "浪潮"),
+    ("海尔", "Haier（海尔）"),
+    ("长城", "Great Wall（长城）"),
+    ("壹号本", "ONE-NETBOOK（壹号本）"),
+    ("努比亚", "努比亚"),
+    ("慧天", "慧天"),
+    ("雷蛇", "Razer（雷蛇）"),
+    ("炫龙", "Shinelon（炫龙）"),
+    ("技械骑士", "技械骑士"),
+    ("真我", "realme"),
+    ("a豆", "adol（a豆）"),
+    ("adol", "adol（a豆）"),
 ]
+
+BRAND_ALIASES_BY_LENGTH = sorted(BRAND_ALIASES, key=lambda item: len(item[0]), reverse=True)
 
 
 def strip_html(value: str | None) -> str:
@@ -311,11 +360,12 @@ def parse_battery_wh(value: str | None) -> int | None:
 
 
 def extract_brand(title: str | None, explicit_brand: str | None = None) -> str | None:
-    source = f"{explicit_brand or ''} {title or ''}"
-    for alias, canonical in BRAND_ALIASES:
-        if alias.lower() in source.lower():
+    source = clean_value(f"{explicit_brand or ''} {title or ''}") or ""
+    lowered = source.lower()
+    for alias, canonical in BRAND_ALIASES_BY_LENGTH:
+        if alias.lower() in lowered:
             return canonical
-    return explicit_brand or None
+    return clean_value(explicit_brand)
 
 
 def clean_model(title: str | None, brand: str | None) -> str | None:

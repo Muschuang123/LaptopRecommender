@@ -3,7 +3,7 @@
 本项目是一个本地运行的笔记本推荐系统：
 
 - `crawler/`：爬取并规范化笔记本数据，生成 SQL。
-- `sql/`、`data/crawl_output/`：数据库表结构和当前样本数据。
+- `sql/`、`data/crawl_output/`：数据库表结构和爬虫输出。
 - `laptop-rec-backend/`：Spring Boot 后端，提供列表筛选、详情和 DeepSeek 推荐接口。
 - `laptop-rec-frontend/`：Vite React 前端，提供首页、条件筛选页和推荐聊天页。
 
@@ -60,25 +60,22 @@ optional:file:./.env.local[.properties]
 
 所以启动后端前请先进入 `laptop-rec-backend/`。
 
-## 2. 准备数据库
+## 2. 初始化数据库和数据
 
-以下命令在项目根目录执行。把占位符替换成你的 MySQL 信息。
+完成 `laptop-rec-backend/application-local.yml` 后，回到项目根目录执行：
 
 ```powershell
-mysql -u<db-username> -p -P<db-port> -h<db-host> -e "CREATE DATABASE IF NOT EXISTS <db-name> DEFAULT CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-cmd /c "mysql -u<db-username> -p -P<db-port> -h<db-host> <db-name> < sql\schema.sql"
-cmd /c "mysql -u<db-username> -p -P<db-port> -h<db-host> <db-name> < data\crawl_output\laptops_upsert_20260601_110838.sql"
-mysql -u<db-username> -p -P<db-port> -h<db-host> -D <db-name> -e "SELECT COUNT(*) FROM laptop;"
+& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --init-schema --execute
 ```
 
-最后一条能返回数量，说明数据已导入。
+该命令会读取 `application-local.yml`，自动创建数据库、导入 `sql/schema.sql`，爬取 ZOL 笔记本排行榜并写入初始数据。
 
 ## 3. 在线更新笔记本数据
 
-以下命令在项目根目录执行，会读取 `laptop-rec-backend/application-local.yml` 中的数据库连接信息，爬取当前 ZOL 笔记本排行榜目录及品牌排行榜目录，并安全更新数据库：
+后续更新数据时继续在项目根目录执行：
 
 ```powershell
-& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --delay 1.2 --execute
+& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --execute
 ```
 
 该命令的写库策略：
@@ -91,7 +88,7 @@ mysql -u<db-username> -p -P<db-port> -h<db-host> -D <db-name> -e "SELECT COUNT(*
 如果只想爬取并生成安全 SQL，不立刻写入数据库，去掉 `--execute`：
 
 ```powershell
-& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --delay 1.2
+& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update
 ```
 
 生成文件会写入 `data/crawl_output/`，其中 `laptops_safe_online_update_*.sql` 是安全更新 SQL。

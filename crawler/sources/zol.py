@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from ..http_client import HttpClient
 from ..models import LaptopRawItem
-from ..normalizer import clean_value, parse_price, strip_html
+from ..normalizer import clean_value, extract_brand, parse_price, strip_html
 
 try:
     from tqdm import tqdm
@@ -17,7 +17,6 @@ except ImportError:
 
 ZOL_NOTEBOOK_RANK_ROOT_URL = "https://wap.zol.com.cn/top/notebook/"
 ZOL_BRAND_RANK_URL = "https://wap.zol.com.cn/top/notebook/brand/"
-ZOL_HOT_RANK_URL = "https://wap.zol.com.cn/top/notebook/hot.html"
 ZOL_DETAIL_ROBOTS_URL = "https://detail.zol.com.cn/robots.txt"
 ZOL_WAP_ROBOTS_URL = "https://wap.zol.com.cn/robots.txt"
 
@@ -26,6 +25,7 @@ ZOL_WAP_ROBOTS_URL = "https://wap.zol.com.cn/robots.txt"
 class RankPage:
     url: str
     title: str
+    brand: str | None = None
 
 
 @dataclass
@@ -153,12 +153,10 @@ class ZolNotebookRankCrawler(ZolParamCrawler):
         client: HttpClient,
         rank_root_url: str = ZOL_NOTEBOOK_RANK_ROOT_URL,
         brand_rank_url: str = ZOL_BRAND_RANK_URL,
-        rank_urls: list[str] | None = None,
     ) -> None:
         super().__init__(client)
         self.rank_root_url = rank_root_url
         self.brand_rank_url = brand_rank_url
-        self.rank_urls = rank_urls
 
     def crawl(self, max_details: int | None = None) -> list[LaptopRawItem]:
         rank_pages = self.discover_rank_pages()
@@ -167,9 +165,6 @@ class ZolNotebookRankCrawler(ZolParamCrawler):
         return [self.fetch_param(item) for item in iterator]
 
     def discover_rank_pages(self) -> list[RankPage]:
-        if self.rank_urls is not None:
-            return [RankPage(url=url, title=url) for url in self.rank_urls]
-
         self.robots.assert_can_fetch(self.rank_root_url)
         root_html = self.client.get_text(self.rank_root_url)
         rank_pages = self.parse_rank_directory_page(root_html, self.rank_root_url)
@@ -182,15 +177,18 @@ class ZolNotebookRankCrawler(ZolParamCrawler):
 
     def collect_rank_items(self, rank_pages: list[RankPage], max_details: int | None = None) -> list[LaptopRawItem]:
         items: list[LaptopRawItem] = []
-        seen: set[str] = set()
+        seen: dict[str, LaptopRawItem] = {}
         iterator = self._progress(rank_pages, "解析 ZOL 榜单页", "榜")
         for rank_page in iterator:
             self.robots.assert_can_fetch(rank_page.url)
             html = self.client.get_text(rank_page.url)
-            for item in self.parse_rank_page(html, rank_page.url):
-                if item.source_url in seen:
+            for item in self.parse_rank_page(html, rank_page.url, rank_brand=rank_page.brand):
+                existing = seen.get(item.source_url)
+                if existing is not None:
+                    if not existing.brand and item.brand:
+                        existing.brand = item.brand
                     continue
-                seen.add(item.source_url)
+                seen[item.source_url] = item
                 items.append(item)
                 if max_details is not None and len(items) >= max_details:
                     return items
@@ -221,10 +219,16 @@ class ZolNotebookRankCrawler(ZolParamCrawler):
             if not url or not self._is_notebook_rank_url(url):
                 continue
             title = clean_value(strip_html(text)) or url
-            rank_pages.append(RankPage(url=url, title=title))
+            brand = self._extract_rank_brand(title, url, page_url)
+            rank_pages.append(RankPage(url=url, title=title, brand=brand))
         return self._dedupe_rank_pages(rank_pages)
 
-    def parse_rank_page(self, html_text: str, page_url: str) -> list[LaptopRawItem]:
+    def parse_rank_page(
+        self,
+        html_text: str,
+        page_url: str,
+        rank_brand: str | None = None,
+    ) -> list[LaptopRawItem]:
         blocks = re.findall(r'<li class="showLi\b.*?</li>', html_text, flags=re.I | re.S)
         items: list[LaptopRawItem] = []
         seen: set[str] = set()
@@ -244,6 +248,7 @@ class ZolNotebookRankCrawler(ZolParamCrawler):
                     source_name=self.source_name,
                     source_url=param_url,
                     title=clean_value(title) or "",
+                    brand=rank_brand,
                     price_text=clean_value(price_text),
                     price=parse_price(price_text),
                     image_url=self.client.absolute_url(page_url, image),
@@ -262,6 +267,12 @@ class ZolNotebookRankCrawler(ZolParamCrawler):
             seen.add(rank_page.url)
             deduped.append(rank_page)
         return deduped
+
+    def _extract_rank_brand(self, title: str, url: str, directory_url: str) -> str | None:
+        if urlparse(directory_url).path != "/top/notebook/brand/":
+            return None
+        slug = urlparse(url).path.strip("/").split("/")[-1]
+        return extract_brand(title, slug)
 
     def _is_notebook_rank_url(self, url: str) -> bool:
         parsed = urlparse(url)
@@ -284,11 +295,3 @@ class ZolNotebookRankCrawler(ZolParamCrawler):
         if match:
             return f"https://detail.zol.com.cn/{match.group(1)}/{match.group(2)}/param.shtml"
         return None
-
-
-class ZolHotRankCrawler(ZolNotebookRankCrawler):
-    def __init__(self, client: HttpClient, hot_rank_url: str = ZOL_HOT_RANK_URL) -> None:
-        super().__init__(client, rank_urls=[hot_rank_url])
-
-    def parse_hot_rank_page(self, html_text: str, page_url: str) -> list[LaptopRawItem]:
-        return self.parse_rank_page(html_text, page_url)

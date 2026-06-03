@@ -18,15 +18,17 @@
 
 当前实现需要 `requests`；如果环境中安装了 `tqdm`，抓取参数页时会显示进度条。没有 `tqdm` 时会自动退回到简单文本进度。
 
-## 初始化 MySQL 表
+## 初始化数据库和数据
 
-先在目标库执行一次：
+先配置好 `laptop-rec-backend/application-local.yml`，然后在项目根目录执行：
 
-```sql
-SOURCE sql/schema.sql;
+```powershell
+& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --init-schema --execute
 ```
 
-## 抓取 ZOL 数据并生成 SQL
+该命令会创建数据库、导入 `sql/schema.sql`，并爬取当前 ZOL 数据写入初始数据。
+
+## 只生成抓取 SQL
 
 ```powershell
 & $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.cli --delay 1.2
@@ -40,10 +42,10 @@ SOURCE sql/schema.sql;
 
 ## 在线安全更新数据库
 
-如果要“爬取 + 更新数据库”，使用安全在线更新命令：
+后续更新使用：
 
 ```powershell
-& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --delay 1.2 --execute
+& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --execute
 ```
 
 默认读取 `laptop-rec-backend/application-local.yml` 中的 `spring.datasource` 配置。

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .http_client import HttpClient
 from .normalizer import LaptopDataNormalizer
-from .sources.zol import ZOL_NOTEBOOK_RANK_ROOT_URL, ZolHotRankCrawler, ZolNotebookRankCrawler
+from .sources.zol import ZolNotebookRankCrawler
 from .sql_writer import MySqlSqlWriter
 
 
@@ -28,8 +28,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-details", type=int, default=None, help="Maximum parameter pages to crawl.")
     parser.add_argument("--delay", type=float, default=1.2, help="Delay between HTTP requests, seconds.")
     parser.add_argument("--output-dir", default="data/crawl_output")
-    parser.add_argument("--zol-rank-root-url", default=ZOL_NOTEBOOK_RANK_ROOT_URL)
-    parser.add_argument("--zol-hot-rank-url", default=None, help="Deprecated: crawl one rank page only.")
     return parser.parse_args()
 
 
@@ -39,11 +37,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     client = HttpClient(delay_seconds=args.delay)
-    if args.zol_hot_rank_url:
-        crawler = ZolHotRankCrawler(client, hot_rank_url=args.zol_hot_rank_url)
-    else:
-        crawler = ZolNotebookRankCrawler(client, rank_root_url=args.zol_rank_root_url)
-    raw_items = crawler.crawl(max_details=args.max_details)
+    raw_items = ZolNotebookRankCrawler(client).crawl(max_details=args.max_details)
     raw_items = _dedupe_by_url(raw_items)
 
     normalizer = LaptopDataNormalizer()

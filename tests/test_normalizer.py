@@ -1,7 +1,7 @@
 import unittest
 
 from crawler.models import LaptopRawItem
-from crawler.normalizer import LaptopDataNormalizer
+from crawler.normalizer import LaptopDataNormalizer, extract_brand
 
 
 class LaptopDataNormalizerTest(unittest.TestCase):
@@ -58,6 +58,37 @@ class LaptopDataNormalizerTest(unittest.TestCase):
 
         self.assertEqual(normalized["cpu"]["core_count"], 8)
         self.assertEqual(normalized["cpu"]["thread_count"], 16)
+
+    def test_extracts_long_tail_brands_from_title(self):
+        cases = [
+            ("ThinkBook 16+(21CY0001CD)", "ThinkBook"),
+            ("七彩虹将星 X17 AT(i5/RTX4050)", "七彩虹"),
+            ("Colorful 隐星 P16", "七彩虹"),
+            ("技嘉AERO 15-Classic", "GIGABYTE（技嘉）"),
+            ("GIGABYTE AERO 16", "GIGABYTE（技嘉）"),
+            ("AORUS 17 2022", "GIGABYTE（技嘉）"),
+            ("H3C Book Ultra 14T", "H3C"),
+            ("努比亚红魔游戏本 16 PRO", "努比亚"),
+            ("VAIO SX12 2023", "VAIO"),
+            ("松下CF-SZ6", "Panasonic（松下）"),
+            ("真我笔记本 Air", "realme"),
+        ]
+
+        for title, brand in cases:
+            with self.subTest(title=title):
+                self.assertEqual(extract_brand(title), brand)
+
+    def test_explicit_brand_is_canonicalized(self):
+        item = LaptopRawItem(
+            source_name="ZOL",
+            source_url="https://detail.zol.com.cn/1/1/param.shtml",
+            title="AERO 15-Classic-YA",
+            brand="gigabyte",
+        )
+
+        normalized = LaptopDataNormalizer().normalize(item)
+
+        self.assertEqual(normalized["brand"], "GIGABYTE（技嘉）")
 
 
 if __name__ == "__main__":

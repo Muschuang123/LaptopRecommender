@@ -36,6 +36,7 @@ public class RecommendServiceImpl implements RecommendService {
     private static final int MAX_TOOL_ROUNDS = 4;
     private static final int MAX_TOOL_RESULTS = 10;
     private static final int MAX_RECOMMENDATIONS = 10;
+    private static final int MAX_REASON_LENGTH = 600;
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
@@ -131,18 +132,21 @@ public class RecommendServiceImpl implements RecommendService {
                 你是笔记本电脑推荐系统的中文导购 Agent。
                 你只能通过工具查询本系统数据库，不能编造数据库中不存在的机型、价格或参数。
                 不要引用外部评测、实时价格或本系统数据库之外的机型信息。
+                可以基于你对 CPU、GPU、内存、屏幕、重量、接口等硬件的一般知识，对工具返回的数据库机型做具体评价；但机型、价格和参数必须以工具返回数据为准。
                 recommendations 只能使用本轮工具返回过的 laptop id，不得输出工具结果中没有的型号或 id。
+                recommendations 中每一条 reason 必须评价同一个 laptopId 对应的机型，不要把 A 机型的参数或结论写到 B 机型。
+                reason 要具体说明为什么适合或不适合用户需求，尽量覆盖性能、显卡/游戏或创作能力、便携性、屏幕、内存/硬盘、价格取舍中的相关项。
                 如果用户信息不足，先追问预算、用途、便携性、游戏/显卡需求和品牌偏好。
                 如果信息足够，先调用 search_laptops 查询候选，再调用 get_laptop_detail 获取最终推荐机型详情。
                 最终回答必须是严格 JSON 对象，不要使用 Markdown 代码块，格式如下：
                 {
-                  "reply": "面向用户的中文说明；如果需要追问，就说明还缺什么信息。最终机型规格介绍会由系统根据数据库详情生成。",
+                  "reply": "面向用户的中文说明；如果需要追问，就说明还缺什么信息。",
                   "recommendations": [
-                    {"laptopId": 1, "reason": "推荐理由"}
+                    {"laptopId": 1, "reason": "针对该 laptopId 的具体推荐理由"}
                   ],
                   "followUpQuestions": ["需要继续追问的问题"]
                 }
-                推荐数量最多 10 台，不要输出 score 字段。
+                推荐数量最多 10 台，超出 10 台将被截断，不会被纳入答案中。
                 """;
     }
 
@@ -161,7 +165,7 @@ public class RecommendServiceImpl implements RecommendService {
         body.put("tools", buildTools());
         body.put("tool_choice", "auto");
         body.put("temperature", 0.3);
-        body.put("max_tokens", 2000);
+        body.put("max_tokens", 3500);
 
         WebClient webClient = webClientBuilder
                 .baseUrl(normalizeBaseUrl(deepSeekProperties.getBaseUrl()))
@@ -428,21 +432,6 @@ public class RecommendServiceImpl implements RecommendService {
         return List.of("你的预算上限是多少？", "主要用途是办公、编程、游戏还是设计？", "是否有便携性或品牌偏好？");
     }
 
-    private String buildRecommendationReason(LaptopDetailVO detail) {
-        if (detail == null) {
-            return "数据库候选机型，建议结合详情继续比较。";
-        }
-        return "这台机型在数据库中有完整配置记录，适合围绕当前预算和用途继续比较；核心配置是 "
-                + text(detail.getCpuModel())
-                + "、"
-                + text(detail.getGpuModel())
-                + "、"
-                + formatGb(detail.getMemoryCapacityGb())
-                + " 内存和 "
-                + formatGb(detail.getStorageCapacityGb())
-                + " 硬盘。";
-    }
-
     private String laptopName(LaptopDetailVO detail) {
         return joinText(detail.getBrandName(), detail.getModel(), " ");
     }
@@ -587,7 +576,7 @@ public class RecommendServiceImpl implements RecommendService {
                 }
                 RecommendationVO recommendation = new RecommendationVO();
                 recommendation.setLaptopId(laptopId);
-                recommendation.setReason(buildRecommendationReason(detail));
+                recommendation.setReason(readRecommendationReason(item));
                 recommendation.setDetail(detail);
                 recommendations.add(recommendation);
                 usedIds.add(laptopId);
@@ -633,11 +622,22 @@ public class RecommendServiceImpl implements RecommendService {
             }
             RecommendationVO recommendation = new RecommendationVO();
             recommendation.setLaptopId(id);
-            recommendation.setReason(buildRecommendationReason(detail));
+            recommendation.setReason("模型未返回该机型的有效推荐理由，请结合数据库详情继续比较。");
             recommendation.setDetail(detail);
             recommendations.add(recommendation);
         }
         return recommendations;
+    }
+
+    private String readRecommendationReason(JsonNode item) {
+        String reason = normalizeText(item.path("reason").asText(null));
+        if (reason == null || looksLikeJson(reason)) {
+            return "模型未返回该机型的有效推荐理由，请结合数据库详情继续比较。";
+        }
+        if (reason.length() > MAX_REASON_LENGTH) {
+            return reason.substring(0, MAX_REASON_LENGTH).trim();
+        }
+        return reason;
     }
 
     private LaptopDetailVO loadDetail(Long id, Map<Long, LaptopDetailVO> detailById) {
