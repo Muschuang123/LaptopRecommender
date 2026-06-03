@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.laptoprec.mapper.LaptopMapper">
+
+    <sql id="LaptopJoins">
+        FROM laptop l
+        JOIN brand b ON b.id = l.brand_id
+        LEFT JOIN cpu_spec c ON c.id = l.cpu_id
+        LEFT JOIN gpu_spec g ON g.id = l.gpu_id
+        LEFT JOIN memory_spec m ON m.id = l.memory_id
+        LEFT JOIN storage_spec st ON st.id = l.storage_id
+        LEFT JOIN screen_spec sc ON sc.id = l.screen_id
+        LEFT JOIN battery_spec ba ON ba.id = l.battery_id
+        LEFT JOIN wireless_spec wi ON wi.id = l.wireless_id
+        LEFT JOIN price_record pr ON pr.id = (
+            SELECT pr2.id
+            FROM price_record pr2
+            WHERE pr2.laptop_id = l.id
+            ORDER BY pr2.crawled_at DESC, pr2.id DESC
+            LIMIT 1
+        )
+    </sql>
+
+    <sql id="LaptopFilters">
+        <where>
+            <if test="query.keyword != null">
+                AND (
+                    l.model LIKE CONCAT('%', #{query.keyword}, '%')
+                    OR l.raw_title LIKE CONCAT('%', #{query.keyword}, '%')
+                    OR b.name LIKE CONCAT('%', #{query.keyword}, '%')
+                )
+            </if>
+            <if test="query.brand != null">
+                AND b.name = #{query.brand}
+            </if>
+            <if test="query.cpuKeyword != null">
+                AND c.model LIKE CONCAT('%', #{query.cpuKeyword}, '%')
+            </if>
+            <if test="query.gpuKeyword != null">
+                AND g.model LIKE CONCAT('%', #{query.gpuKeyword}, '%')
+            </if>
+            <if test="query.productType != null">
+                AND l.product_type = #{query.productType}
+            </if>
+            <if test="query.usageKeyword != null">
+                AND l.usage_positioning LIKE CONCAT('%', #{query.usageKeyword}, '%')
+            </if>
+            <if test="query.gpuType != null">
+                AND g.gpu_type = #{query.gpuType}
+            </if>
+            <if test="query.minPrice != null">
+                AND pr.price &gt;= #{query.minPrice}
+            </if>
+            <if test="query.maxPrice != null">
+                AND pr.price &lt;= #{query.maxPrice}
+            </if>
+            <if test="query.minMemoryGb != null">
+                AND m.capacity_gb &gt;= #{query.minMemoryGb}
+            </if>
+            <if test="query.minStorageGb != null">
+                AND st.capacity_gb &gt;= #{query.minStorageGb}
+            </if>
+            <if test="query.minScreenSize != null">
+                AND sc.size_inch &gt;= #{query.minScreenSize}
+            </if>
+            <if test="query.maxWeightKg != null">
+                AND l.weight_kg &lt;= #{query.maxWeightKg}
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectListItems" resultType="com.example.laptoprec.vo.LaptopListItemVO">
+        SELECT
+            l.id,
+            b.name AS brand_name,
+            l.model,
+            l.product_type,
+            l.usage_positioning,
+            l.weight_kg,
+            l.image_url,
+            l.source_url,
+            l.release_date,
+            pr.price AS latest_price,
+            c.model AS cpu_model,
+            g.model AS gpu_model,
+            g.gpu_type,
+            m.capacity_gb AS memory_capacity_gb,
+            st.capacity_gb AS storage_capacity_gb,
+            sc.size_inch AS screen_size_inch,
+            sc.resolution AS screen_resolution,
+            sc.refresh_rate_hz
+        <include refid="LaptopJoins"/>
+        <include refid="LaptopFilters"/>
+        <choose>
+            <when test="query.sort == 'priceAsc'">
+                ORDER BY pr.price IS NULL, pr.price ASC, l.id DESC
+            </when>
+            <when test="query.sort == 'priceDesc'">
+                ORDER BY pr.price IS NULL, pr.price DESC, l.id DESC
+            </when>
+            <when test="query.sort == 'weightAsc'">
+                ORDER BY l.weight_kg IS NULL, l.weight_kg ASC, l.id DESC
+            </when>
+            <when test="query.sort == 'screenDesc'">
+                ORDER BY sc.size_inch IS NULL, sc.size_inch DESC, l.id DESC
+            </when>
+            <otherwise>
+                ORDER BY COALESCE(pr.crawled_at, l.updated_at) DESC, l.id DESC
+            </otherwise>
+        </choose>
+        LIMIT #{query.offset}, #{query.size}
+    </select>
+
+    <select id="countListItems" resultType="long">
+        SELECT COUNT(1)
+        <include refid="LaptopJoins"/>
+        <include refid="LaptopFilters"/>
+    </select>
+
+    <select id="selectDetailById" resultType="com.example.laptoprec.vo.LaptopDetailVO">
+        SELECT
+            l.id,
+            b.name AS brand_name,
+            l.model,
+            l.product_type,
+            l.usage_positioning,
+            l.weight_kg,
+            l.thickness_mm,
+            l.os,
+            l.color,
+            l.image_url,
+            l.source_url,
+            l.source_name,
+            l.raw_title,
+            l.release_date,
+            pr.price AS latest_price,
+            c.brand AS cpu_brand,
+            c.model AS cpu_model,
+            c.core_count AS cpu_core_count,
+            c.thread_count AS cpu_thread_count,
+            c.base_power_w AS cpu_base_power_w,
+            g.brand AS gpu_brand,
+            g.model AS gpu_model,
+            g.gpu_type,
+            g.vram_gb AS gpu_vram_gb,
+            m.capacity_gb AS memory_capacity_gb,
+            m.memory_type,
+            m.frequency_mhz AS memory_frequency_mhz,
+            st.capacity_gb AS storage_capacity_gb,
+            st.storage_type,
+            st.interface_type AS storage_interface_type,
+            sc.size_inch AS screen_size_inch,
+            sc.resolution AS screen_resolution,
+            sc.refresh_rate_hz AS screen_refresh_rate_hz,
+            sc.panel_type AS screen_panel_type,
+            sc.color_gamut_percent AS screen_color_gamut_percent,
+            sc.brightness_nit AS screen_brightness_nit,
+            sc.touch_support AS screen_touch_support,
+            ba.capacity_wh AS battery_capacity_wh,
+            ba.charge_power AS battery_charge_power,
+            wi.wifi_version,
+            wi.bluetooth_version,
+            port_group.port_summary
+        <include refid="LaptopJoins"/>
+        LEFT JOIN (
+            SELECT
+                lp.laptop_id,
+                GROUP_CONCAT(
+                    CONCAT(ps.port_name, ' x', lp.port_count)
+                    ORDER BY ps.port_name
+                    SEPARATOR '；'
+                ) AS port_summary
+            FROM laptop_port lp
+            JOIN port_spec ps ON ps.id = lp.port_id
+            GROUP BY lp.laptop_id
+        ) port_group ON port_group.laptop_id = l.id
+        WHERE l.id = #{id}
+        LIMIT 1
+    </select>
+
+    <select id="selectBrands" resultType="string">
+        SELECT b.name
+        FROM brand b
+        JOIN laptop l ON l.brand_id = b.id
+        GROUP BY b.name
+        ORDER BY b.name
+    </select>
+
+    <select id="selectProductTypes" resultType="string">
+        SELECT DISTINCT l.product_type
+        FROM laptop l
+        WHERE l.product_type IS NOT NULL AND l.product_type != ''
+        ORDER BY l.product_type
+    </select>
+
+    <select id="selectUsagePositionings" resultType="string">
+        SELECT DISTINCT l.usage_positioning
+        FROM laptop l
+        WHERE l.usage_positioning IS NOT NULL AND l.usage_positioning != ''
+        ORDER BY l.usage_positioning
+    </select>
+
+    <select id="selectGpuTypes" resultType="string">
+        SELECT DISTINCT g.gpu_type
+        FROM laptop l
+        JOIN gpu_spec g ON g.id = l.gpu_id
+        WHERE g.gpu_type IS NOT NULL AND g.gpu_type != ''
+        ORDER BY g.gpu_type
+    </select>
+
+    <select id="selectMemoryCapacitiesGb" resultType="int">
+        SELECT DISTINCT m.capacity_gb
+        FROM laptop l
+        JOIN memory_spec m ON m.id = l.memory_id
+        WHERE m.capacity_gb IS NOT NULL
+        ORDER BY m.capacity_gb
+    </select>
+
+    <select id="selectStorageCapacitiesGb" resultType="int">
+        SELECT DISTINCT st.capacity_gb
+        FROM laptop l
+        JOIN storage_spec st ON st.id = l.storage_id
+        WHERE st.capacity_gb IS NOT NULL
+        ORDER BY st.capacity_gb
+    </select>
+
+    <select id="selectScreenSizesInch" resultType="java.math.BigDecimal">
+        SELECT DISTINCT sc.size_inch
+        FROM laptop l
+        JOIN screen_spec sc ON sc.id = l.screen_id
+        WHERE sc.size_inch IS NOT NULL
+        ORDER BY sc.size_inch
+    </select>
+
+    <select id="selectPriceRange" resultType="com.example.laptoprec.vo.RangeVO">
+        SELECT
+            MIN(pr.price) AS min,
+            MAX(pr.price) AS max
+        FROM laptop l
+        LEFT JOIN price_record pr ON pr.id = (
+            SELECT pr2.id
+            FROM price_record pr2
+            WHERE pr2.laptop_id = l.id
+            ORDER BY pr2.crawled_at DESC, pr2.id DESC
+            LIMIT 1
+        )
+    </select>
+
+    <select id="selectWeightRange" resultType="com.example.laptoprec.vo.RangeVO">
+        SELECT
+            MIN(l.weight_kg) AS min,
+            MAX(l.weight_kg) AS max
+        FROM laptop l
+        WHERE l.weight_kg IS NOT NULL
+    </select>
+</mapper>

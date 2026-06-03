@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: "jdbc:mysql://<db-host>:<db-port>/<db-name>?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
+    username: "<db-username>"
+    password: "<db-password>"
+
+deepseek:
+  api-key: "<deepseek-api-key>"
+  base-url: "https://api.deepseek.com"
+  model: "deepseek-v4-flash"

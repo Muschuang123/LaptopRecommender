@@ -1,0 +1,8 @@
+target/
+.idea/
+*.iml
+*.log
+.env.local
+application-local.yml
+*.local.yml
+%SystemDrive%/
