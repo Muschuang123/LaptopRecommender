@@ -5,6 +5,7 @@
 !.env.*.example
 application-local.yml
 *.local.yml
+_*.md
 
 # Logs
 *.log
