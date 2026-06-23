@@ -30,6 +30,10 @@ body {
   overflow-x: hidden;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 button,
 input,
 textarea,
@@ -2679,5 +2683,112 @@ button:disabled {
 
   .cartToolbar {
     justify-content: flex-start;
+  }
+}
+
+.pageTransition {
+  min-height: 100dvh;
+  overflow: hidden;
+  overflow: clip;
+  animation: page-enter 400ms cubic-bezier(0.22, 0.8, 0.28, 1) both;
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.homeShell {
+  display: flex;
+  height: 100dvh;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.homeShell .hero {
+  min-height: 0;
+  height: 100%;
+  flex: 1 1 auto;
+  padding: clamp(24px, 4.5vh, 52px) 0;
+}
+
+.homeShell .hero h1 {
+  margin: 18px 0 16px;
+  font-size: clamp(44px, 4.6vw, 64px);
+}
+
+.homeShell .heroActions {
+  margin-top: 26px;
+}
+
+.homeShell .heroProof {
+  margin-top: 30px;
+}
+
+@media (min-width: 1101px) and (max-height: 760px) {
+  .homeShell {
+    padding-top: max(18px, env(safe-area-inset-top));
+    padding-bottom: max(18px, env(safe-area-inset-bottom));
+  }
+
+  .homeShell .hero {
+    padding: 18px 0;
+  }
+
+  .homeShell .hero h1 {
+    margin: 14px 0 12px;
+    font-size: clamp(40px, 4vw, 56px);
+  }
+
+  .homeShell .hero p {
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  .homeShell .heroActions {
+    margin-top: 20px;
+  }
+
+  .homeShell .heroProof {
+    margin-top: 22px;
+  }
+
+  .homeShell .heroVisual {
+    min-height: 380px;
+  }
+
+  .homeShell .heroDashboard {
+    min-height: 360px;
+    padding: 20px;
+  }
+
+  .homeShell .heroDashboardTitle {
+    margin-top: 24px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .homeShell {
+    display: block;
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .homeShell .hero {
+    height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pageTransition {
+    animation: none;
   }
 }

@@ -107,16 +107,18 @@ export default function App() {
     setLocation({ path: window.location.pathname, search: window.location.search });
   }, []);
 
+  let page: ReactNode;
   if (location.path === "/filter") {
-    return <FilterPage key={`${location.path}${location.search}`} navigate={navigate} />;
+    page = <FilterPage key={`${location.path}${location.search}`} navigate={navigate} />;
+  } else if (location.path === "/recommend") {
+    page = <RecommendPage navigate={navigate} />;
+  } else if (location.path === "/cart") {
+    page = <CartPage navigate={navigate} />;
+  } else {
+    page = <HomePage navigate={navigate} />;
   }
-  if (location.path === "/recommend") {
-    return <RecommendPage navigate={navigate} />;
-  }
-  if (location.path === "/cart") {
-    return <CartPage navigate={navigate} />;
-  }
-  return <HomePage navigate={navigate} />;
+
+  return <div key={`${location.path}${location.search}`} className="pageTransition">{page}</div>;
 }
 
 function HomePage({ navigate }: { navigate: (path: string) => void }) {
