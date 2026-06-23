@@ -15,7 +15,7 @@ import {
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent } from "react";
+import type { FormEvent, KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { chatRecommend, getLaptopDetail, getLaptopOptions, getLaptops } from "./api";
 import type {
   ChatMessage,
@@ -52,6 +52,14 @@ const sortOptions = [
   { value: "screenDesc", label: "屏幕尺寸从大到小" }
 ];
 
+const filterFields = Object.keys(emptyFilters) as Array<keyof LaptopFilters>;
+const numberFormatter = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 });
+const currencyFormatter = new Intl.NumberFormat("zh-CN", {
+  style: "currency",
+  currency: "CNY",
+  maximumFractionDigits: 0
+});
+
 const recommendStorageKey = "laptop-rec:recommend:sessions:v1";
 const initialRecommendMessages: ChatMessage[] = [
   { role: "assistant", content: "请说出 预算/用途/偏好 ，我会从数据库里找合适机型。" }
@@ -73,23 +81,26 @@ interface RecommendSessionState {
 }
 
 export default function App() {
-  const [path, setPath] = useState(window.location.pathname);
+  const [location, setLocation] = useState(() => ({
+    path: window.location.pathname,
+    search: window.location.search
+  }));
 
   useEffect(() => {
-    const onPopState = () => setPath(window.location.pathname);
+    const onPopState = () => setLocation({ path: window.location.pathname, search: window.location.search });
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   const navigate = useCallback((nextPath: string) => {
     window.history.pushState({}, "", nextPath);
-    setPath(nextPath);
+    setLocation({ path: window.location.pathname, search: window.location.search });
   }, []);
 
-  if (path === "/filter") {
-    return <FilterPage navigate={navigate} />;
+  if (location.path === "/filter") {
+    return <FilterPage key={`${location.path}${location.search}`} navigate={navigate} />;
   }
-  if (path === "/recommend") {
+  if (location.path === "/recommend") {
     return <RecommendPage navigate={navigate} />;
   }
   return <HomePage navigate={navigate} />;
@@ -97,34 +108,122 @@ export default function App() {
 
 function HomePage({ navigate }: { navigate: (path: string) => void }) {
   return (
-    <main className="homeShell">
-      <div className="ambientGrid" />
-      <section className="hero">
-        <div className="heroMark">
-          <Sparkles size={22} />
-          <span>智能选型</span>
-        </div>
-        <h1>笔记本电脑推荐系统</h1>
-        <p>从数据库规格筛选到自然语言推荐，围绕预算、性能、便携和用途给出可比较的机型结果。</p>
-        <div className="heroActions">
-          <button className="primaryAction" type="button" onClick={() => navigate("/filter")}>
-            <SlidersHorizontal size={20} />
-            按条件筛选
-          </button>
-          <button className="secondaryAction" type="button" onClick={() => navigate("/recommend")}>
-            <Bot size={20} />
-            DeepSeek推荐
-          </button>
-        </div>
-      </section>
-    </main>
+    <>
+      <SkipLink />
+      <main id="main-content" className="homeShell" tabIndex={-1}>
+        <div className="ambientGrid" />
+        <section className="hero">
+          <div className="heroCopy">
+            <div className="heroMark">
+              <Sparkles size={18} aria-hidden="true" />
+              <span>为真实需求匹配真实配置</span>
+            </div>
+            <h1>更快选到适合你的下一台笔记本</h1>
+            <p>从数据库规格筛选到自然语言推荐，把预算、性能、便携与用途放在同一套决策框架里。</p>
+            <div className="heroActions">
+              <AppLink className="primaryAction" to="/filter" navigate={navigate}>
+                <SlidersHorizontal size={20} aria-hidden="true" />
+                开始筛选
+              </AppLink>
+              <AppLink className="secondaryAction" to="/recommend" navigate={navigate}>
+                <Bot size={20} aria-hidden="true" />
+                对话式推荐
+              </AppLink>
+            </div>
+            <ul className="heroProof">
+              <li>
+                <strong>多维规格</strong>
+                <span>统一对比配置</span>
+              </li>
+              <li>
+                <strong>本地数据</strong>
+                <span>结果可以核对</span>
+              </li>
+              <li>
+                <strong>对话理解</strong>
+                <span>把需求说清即可</span>
+              </li>
+            </ul>
+          </div>
+          <div className="heroVisual" aria-hidden="true">
+            <div className="heroVisualGlow" />
+            <div className="heroDashboard">
+              <div className="heroDashboardTop">
+                <span className="visualStatus"><i /> 规格库已就绪</span>
+                <span>实时匹配</span>
+              </div>
+              <div className="heroDashboardTitle">
+                <span>选型工作台</span>
+                <strong>从需求到候选机型</strong>
+              </div>
+              <div className="heroMetricRow">
+                <div>
+                  <span>预算范围</span>
+                  <strong>¥6,000–10,000</strong>
+                </div>
+                <div>
+                  <span>优先场景</span>
+                  <strong>开发 · 轻创作</strong>
+                </div>
+              </div>
+              <div className="heroCandidateList">
+                <div className="heroCandidate primaryCandidate">
+                  <span className="candidateIcon"><Cpu size={18} /></span>
+                  <div>
+                    <strong>性能与续航平衡</strong>
+                    <span>高性能处理器 · 轻量机身</span>
+                  </div>
+                  <b>匹配度 94%</b>
+                </div>
+                <div className="heroCandidate">
+                  <span className="candidateIcon"><Monitor size={18} /></span>
+                  <div>
+                    <strong>清晰屏幕与创作空间</strong>
+                    <span>高色域 · 大尺寸显示</span>
+                  </div>
+                  <b>匹配度 88%</b>
+                </div>
+              </div>
+              <div className="heroDashboardBottom">
+                <span><Database size={15} /> 数据可追溯</span>
+                <span><Sparkles size={15} /> 智能解释推荐理由</span>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section className="homeFeatureStrip" aria-label="系统能力">
+          <article>
+            <span className="featureIcon"><SlidersHorizontal size={19} aria-hidden="true" /></span>
+            <div>
+              <strong>按条件精确筛选</strong>
+              <span>从价格到重量，快速缩小候选范围。</span>
+            </div>
+          </article>
+          <article>
+            <span className="featureIcon"><Database size={19} aria-hidden="true" /></span>
+            <div>
+              <strong>配置细节清晰可查</strong>
+              <span>每项选择都有对应的数据依据。</span>
+            </div>
+          </article>
+          <article>
+            <span className="featureIcon"><Bot size={19} aria-hidden="true" /></span>
+            <div>
+              <strong>像顾问一样对话</strong>
+              <span>用自然语言描述需求，获得推荐解释。</span>
+            </div>
+          </article>
+        </section>
+      </main>
+    </>
   );
 }
 
 function FilterPage({ navigate }: { navigate: (path: string) => void }) {
   const [options, setOptions] = useState<LaptopOptions | null>(null);
-  const [filters, setFilters] = useState<LaptopFilters>(emptyFilters);
-  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState<LaptopFilters>(() => readFiltersFromSearch(window.location.search));
+  const [appliedFilters, setAppliedFilters] = useState<LaptopFilters>(() => readFiltersFromSearch(window.location.search));
+  const [page, setPage] = useState(() => readPageFromSearch(window.location.search));
   const [data, setData] = useState<PageResult<LaptopListItem> | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -141,15 +240,22 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
   const loadLaptops = useCallback(() => {
     setLoading(true);
     setError("");
-    getLaptops(filters, page, pageSize)
+    getLaptops(appliedFilters, page, pageSize)
       .then(setData)
       .catch((exception: Error) => setError(exception.message))
       .finally(() => setLoading(false));
-  }, [filters, page]);
+  }, [appliedFilters, page]);
 
   useEffect(() => {
     loadLaptops();
   }, [loadLaptops]);
+
+  useEffect(() => {
+    const search = buildFilterSearch(appliedFilters, page);
+    if (window.location.search !== search) {
+      window.history.replaceState({}, "", `${window.location.pathname}${search}`);
+    }
+  }, [appliedFilters, page]);
 
   const totalPages = useMemo(() => {
     if (!data || data.total === 0) {
@@ -160,11 +266,17 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
 
   const updateFilter = (field: keyof LaptopFilters, value: string) => {
     setFilters((current) => ({ ...current, [field]: value }));
-    setPage(1);
   };
 
   const resetFilters = () => {
     setFilters(emptyFilters);
+    setAppliedFilters(emptyFilters);
+    setPage(1);
+  };
+
+  const submitFilters = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAppliedFilters(filters);
     setPage(1);
   };
 
@@ -177,14 +289,16 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
   };
 
   return (
-    <main className="appShell filterShell">
+    <>
+      <SkipLink />
+      <main id="main-content" className="appShell filterShell" tabIndex={-1}>
       <header className="recommendHeader filterHeader">
-        <button className="recommendBackButton" type="button" onClick={() => navigate("/")}>
-          <ArrowLeft size={18} />
-          返回
-        </button>
+        <AppLink className="recommendBackButton" to="/" navigate={navigate}>
+          <ArrowLeft size={18} aria-hidden="true" />
+          返回首页
+        </AppLink>
         <span className="recommendHeaderIcon">
-          <SlidersHorizontal size={22} />
+          <SlidersHorizontal size={22} aria-hidden="true" />
         </span>
         <div className="recommendHeaderText">
           <h1>按条件筛选</h1>
@@ -192,41 +306,53 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
         </div>
         <div className="recommendHeaderMeta">
           <span>本地数据库</span>
-          <strong>{data?.total ?? 0} 个结果</strong>
+          <strong>{formatNumber(data?.total ?? 0)} 个结果</strong>
         </div>
       </header>
 
       <section className="filterLayout">
-        <form className="filterPanel" onSubmit={(event) => event.preventDefault()}>
+        <form className="filterPanel" onSubmit={submitFilters}>
+          <div className="filterPanelIntro wideField">
+            <span>筛选器</span>
+            <h2>定义你的理想配置</h2>
+            <p>填写已知条件，其余项目保持不限即可。</p>
+          </div>
           <label className="field wideField">
             <span>关键词</span>
             <input
+              name="keyword"
+              type="search"
               value={filters.keyword}
+              autoComplete="off"
               onChange={(event) => updateFilter("keyword", event.target.value)}
-              placeholder="型号、标题、品牌"
+              placeholder="例如：ThinkBook…"
             />
           </label>
 
           <SelectField
             label="品牌"
+            name="brand"
             value={filters.brand}
             options={options?.brands ?? []}
             onChange={(value) => updateFilter("brand", value)}
           />
           <SelectField
             label="产品类型"
+            name="productType"
             value={filters.productType}
             options={options?.productTypes ?? []}
             onChange={(value) => updateFilter("productType", value)}
           />
           <SelectField
             label="用途定位"
+            name="usageKeyword"
             value={filters.usageKeyword}
             options={options?.usagePositionings ?? []}
             onChange={(value) => updateFilter("usageKeyword", value)}
           />
           <SelectField
             label="显卡类型"
+            name="gpuType"
             value={filters.gpuType}
             options={options?.gpuTypes ?? []}
             onChange={(value) => updateFilter("gpuType", value)}
@@ -234,16 +360,33 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
 
           <label className="field">
             <span>CPU 关键词</span>
-            <input value={filters.cpuKeyword} onChange={(event) => updateFilter("cpuKeyword", event.target.value)} />
+            <input
+              name="cpuKeyword"
+              value={filters.cpuKeyword}
+              autoComplete="off"
+              onChange={(event) => updateFilter("cpuKeyword", event.target.value)}
+              placeholder="例如：Core Ultra 7…"
+            />
           </label>
           <label className="field">
             <span>GPU 关键词</span>
-            <input value={filters.gpuKeyword} onChange={(event) => updateFilter("gpuKeyword", event.target.value)} />
+            <input
+              name="gpuKeyword"
+              value={filters.gpuKeyword}
+              autoComplete="off"
+              onChange={(event) => updateFilter("gpuKeyword", event.target.value)}
+              placeholder="例如：RTX 5060…"
+            />
           </label>
           <label className="field">
             <span>最低价格</span>
             <input
+              name="minPrice"
+              type="number"
+              min="0"
+              step="1"
               value={filters.minPrice}
+              autoComplete="off"
               inputMode="decimal"
               onChange={(event) => updateFilter("minPrice", event.target.value)}
               placeholder={formatRangeMin(options?.priceRange?.min)}
@@ -252,15 +395,21 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
           <label className="field">
             <span>最高价格</span>
             <input
+              name="maxPrice"
+              type="number"
+              min="0"
+              step="1"
               value={filters.maxPrice}
+              autoComplete="off"
               inputMode="decimal"
               onChange={(event) => updateFilter("maxPrice", event.target.value)}
-              placeholder={formatRangeMax(options?.priceRange?.max)}
+              placeholder={formatRangeMax(options?.priceRange?.max, "12000")}
             />
           </label>
 
           <SelectField
             label="最低内存"
+            name="minMemoryGb"
             value={filters.minMemoryGb}
             options={(options?.memoryCapacitiesGb ?? []).map(String)}
             suffix="GB"
@@ -268,6 +417,7 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
           />
           <SelectField
             label="最低硬盘"
+            name="minStorageGb"
             value={filters.minStorageGb}
             options={(options?.storageCapacitiesGb ?? []).map(String)}
             suffix="GB"
@@ -275,6 +425,7 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
           />
           <SelectField
             label="最低屏幕"
+            name="minScreenSize"
             value={filters.minScreenSize}
             options={(options?.screenSizesInch ?? []).map(String)}
             suffix="英寸"
@@ -283,7 +434,12 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
           <label className="field">
             <span>最高重量</span>
             <input
+              name="maxWeightKg"
+              type="number"
+              min="0"
+              step="0.01"
               value={filters.maxWeightKg}
+              autoComplete="off"
               inputMode="decimal"
               onChange={(event) => updateFilter("maxWeightKg", event.target.value)}
               placeholder={formatRangeMax(options?.weightRange?.max)}
@@ -291,7 +447,7 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
           </label>
           <label className="field wideField">
             <span>排序</span>
-            <select value={filters.sort} onChange={(event) => updateFilter("sort", event.target.value)}>
+            <select name="sort" value={filters.sort} autoComplete="off" onChange={(event) => updateFilter("sort", event.target.value)}>
               {sortOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -302,22 +458,38 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
 
           <div className="filterActions">
             <button className="ghostButton" type="button" onClick={resetFilters}>
-              <X size={18} />
+              <X size={18} aria-hidden="true" />
               重置
             </button>
-            <button className="primaryButton" type="button" onClick={loadLaptops}>
-              <Search size={18} />
-              查询
+            <button className="primaryButton" type="submit" disabled={loading}>
+              {loading ? (
+                <>
+                  <span className="buttonSpinner" aria-hidden="true" />
+                  正在查询…
+                </>
+              ) : (
+                <>
+                  <Search size={18} aria-hidden="true" />
+                  查询
+                </>
+              )}
             </button>
           </div>
         </form>
 
-        <section className="resultArea">
+        <section className="resultArea" aria-busy={loading}>
+          <div className="resultHeading">
+            <div>
+              <span>笔记本目录</span>
+              <h2>匹配结果</h2>
+            </div>
+            <p>{loading ? "正在更新结果…" : `${formatNumber(data?.total ?? 0)} 个机型可供比较`}</p>
+          </div>
 
           <div className="resultScroller">
-            {error && <div className="errorBox">{error}</div>}
-            {loading && <div className="statusBox">正在加载筛选结果...</div>}
-            {!loading && data?.records.length === 0 && <div className="statusBox">没有找到匹配机型。</div>}
+            {error && <div className="errorBox" role="alert">{error}</div>}
+            {loading && <div className="statusBox" role="status" aria-live="polite">正在加载筛选结果…</div>}
+            {!loading && data?.records.length === 0 && <div className="statusBox" role="status" aria-live="polite">没有找到匹配机型。</div>}
 
             <div className="laptopGrid">
               {data?.records.map((item) => (
@@ -327,9 +499,9 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
           </div>
 
           <div className="pager">
-            <label>
-              第 {page} / {totalPages} 页
-            </label>
+            <p className="pagerStatus" aria-live="polite">
+              第 {formatNumber(page)} / {formatNumber(totalPages)} 页
+            </p>
             <button type="button" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}>
               上一页
             </button>
@@ -340,9 +512,10 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
         </section>
       </section>
 
-      {detailLoading && <div className="floatingStatus">正在读取详情...</div>}
+      {detailLoading && <div className="floatingStatus" role="status" aria-live="polite">正在读取详情…</div>}
       {selected && <DetailModal detail={selected} onClose={() => setSelected(null)} />}
-    </main>
+      </main>
+    </>
   );
 }
 
@@ -394,6 +567,9 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
 
   const deleteActiveSession = () => {
     if (pending) {
+      return;
+    }
+    if (!window.confirm(`确认删除“${activeSession.title}”吗？此操作无法恢复。`)) {
       return;
     }
     setInput("");
@@ -484,14 +660,16 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
   };
 
   return (
-    <main className="appShell recommendShell">
+    <>
+      <SkipLink />
+      <main id="main-content" className="appShell recommendShell" tabIndex={-1}>
       <header className="recommendHeader">
-        <button className="recommendBackButton" type="button" onClick={() => navigate("/")}>
-          <ArrowLeft size={18} />
-          返回
-        </button>
+        <AppLink className="recommendBackButton" to="/" navigate={navigate}>
+          <ArrowLeft size={18} aria-hidden="true" />
+          返回首页
+        </AppLink>
         <span className="recommendHeaderIcon">
-          <Bot size={22} />
+          <Bot size={22} aria-hidden="true" />
         </span>
         <div className="recommendHeaderText">
           <h1>DeepSeek推荐</h1>
@@ -499,11 +677,18 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
         </div>
         <div className="recommendHeaderMeta">
           <span>本地数据库</span>
-          <strong>{recommendations.length} 个结果</strong>
+          <strong>{formatNumber(recommendations.length)} 个结果</strong>
         </div>
       </header>
 
-      <aside className="recommendResults">
+       <aside className="recommendResults">
+        <div className="recommendResultsHeading">
+          <div>
+            <span>候选机型</span>
+            <h2>推荐清单</h2>
+          </div>
+          <strong>{formatNumber(recommendations.length)}</strong>
+        </div>
         {recommendations.length ? (
           <div className="recommendListScroller">
             {recommendations.map((recommendation, index) => {
@@ -512,11 +697,15 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
               return expanded ? (
                 <RecommendationCard key={key} recommendation={recommendation} onCollapse={() => toggleRecommendation(key)} />
               ) : (
-                <button key={key} className="recommendRow" type="button" onClick={() => toggleRecommendation(key)}>
+                <button
+                  key={key}
+                  className="recommendRow"
+                  type="button"
+                  aria-label={`查看 ${recommendationName(recommendation)} 的详情`}
+                  onClick={() => toggleRecommendation(key)}
+                >
                   <span>{recommendationName(recommendation)}</span>
-                  <button className="cardToggleButton" type="button">
-                    详情
-                  </button>
+                  <span className="recommendRowHint" aria-hidden="true">详情</span>
                 </button>
               );
             })}
@@ -526,9 +715,25 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
         )}
       </aside>
 
-      <div className="chatPanel">
-        <div className="sessionToolbar">
-          <select value={activeSession.id} onChange={(event) => switchSession(event.target.value)}>
+        <section className="chatPanel" aria-label="推荐对话">
+          <div className="chatPanelHeading">
+            <div className="chatIdentity">
+              <span className="chatAvatar"><Bot size={20} aria-hidden="true" /></span>
+              <div>
+                <span>智能选机顾问</span>
+                <h2>告诉我你的使用场景</h2>
+              </div>
+            </div>
+            <span className="chatShortcut">Enter 发送</span>
+          </div>
+          <div className="sessionToolbar">
+          <select
+            name="session"
+            aria-label="选择会话"
+            value={activeSession.id}
+            autoComplete="off"
+            onChange={(event) => switchSession(event.target.value)}
+          >
             {sessionState.sessions.map((session) => (
               <option key={session.id} value={session.id}>
                 {session.title}
@@ -536,22 +741,22 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
             ))}
           </select>
           <button className="ghostButton compactButton" type="button" onClick={createNewSession} disabled={pending}>
-            <Plus size={17} />
+            <Plus size={17} aria-hidden="true" />
             新建
           </button>
           <button className="ghostButton compactButton" type="button" onClick={deleteActiveSession} disabled={pending}>
-            <Trash2 size={17} />
+            <Trash2 size={17} aria-hidden="true" />
             删除
           </button>
         </div>
 
-        <div className="messageList">
+        <div className="messageList" aria-live="polite" aria-relevant="additions">
           {messages.map((message, index) => (
             <div key={`${message.role}-${index}`} className={`messageBubble ${message.role}`}>
               {message.content}
             </div>
           ))}
-          {pending && <div className="messageBubble assistant">正在查询数据库并整理推荐...</div>}
+          {pending && <div className="messageBubble assistant">正在查询数据库并整理推荐…</div>}
         </div>
 
         {result?.followUpQuestions.length ? (
@@ -567,30 +772,45 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
         <form className="chatComposer" onSubmit={sendMessage}>
           <textarea
             ref={inputRef}
+            name="message"
+            aria-label="输入推荐需求"
             value={input}
+            autoComplete="off"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleComposerKeyDown}
-            placeholder="请输入文本"
+            placeholder="例如：预算 8,000 元，适合编程与轻度游戏…"
             rows={1}
           />
           <button className="primaryButton iconOnlyText" type="submit" disabled={pending}>
-            <Send size={18} />
-            发送
+            {pending ? (
+              <>
+                <span className="buttonSpinner" aria-hidden="true" />
+                正在发送…
+              </>
+            ) : (
+              <>
+                <Send size={18} aria-hidden="true" />
+                发送
+              </>
+            )}
           </button>
         </form>
-      </div>
-    </main>
+        </section>
+      </main>
+    </>
   );
 }
 
 function SelectField({
   label,
+  name,
   value,
   options,
   suffix,
   onChange
 }: {
   label: string;
+  name: string;
   value: string;
   options: string[];
   suffix?: string;
@@ -599,7 +819,7 @@ function SelectField({
   return (
     <label className="field">
       <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
+      <select name={name} value={value} autoComplete="off" onChange={(event) => onChange(event.target.value)}>
         <option value="">不限</option>
         {options.map((option) => (
           <option key={option} value={option}>
@@ -611,13 +831,51 @@ function SelectField({
   );
 }
 
+function SkipLink() {
+  return (
+    <a className="skipLink" href="#main-content">
+      跳至主要内容
+    </a>
+  );
+}
+
+function AppLink({
+  className,
+  to,
+  navigate,
+  children
+}: {
+  className: string;
+  to: string;
+  navigate: (path: string) => void;
+  children: ReactNode;
+}) {
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.button !== 0 || event.metaKey || event.altKey || event.ctrlKey || event.shiftKey) {
+      return;
+    }
+    event.preventDefault();
+    navigate(to);
+  };
+
+  return (
+    <a className={className} href={to} onClick={handleClick}>
+      {children}
+    </a>
+  );
+}
+
 function LaptopCard({ item, onDetail }: { item: LaptopListItem; onDetail: () => void }) {
   return (
     <article className="laptopCard">
       <div className="cardBody">
-        <div className="cardTop">
-          <div className="thumbBox">
-            {item.imageUrl ? <img src={item.imageUrl} alt={`${item.brandName}${item.model}`} /> : <Database size={28} />}
+      <div className="cardTop">
+        <div className="thumbBox">
+          {item.imageUrl ? (
+            <img src={item.imageUrl} alt={`${item.brandName} ${item.model} 笔记本电脑`} width={72} height={72} loading="lazy" />
+          ) : (
+            <Database size={28} aria-hidden="true" />
+          )}
           </div>
           <div className="titleBlock">
             <div>
@@ -629,19 +887,19 @@ function LaptopCard({ item, onDetail }: { item: LaptopListItem; onDetail: () => 
         </div>
         <div className="specRow">
           <span>
-            <Cpu size={16} />
+            <Cpu size={16} aria-hidden="true" />
             {text(item.cpuModel)}
           </span>
           <span>
-            <HardDrive size={16} />
+            <HardDrive size={16} aria-hidden="true" />
             {capacity(item.memoryCapacityGb)} / {capacity(item.storageCapacityGb)}
           </span>
           <span>
-            <Monitor size={16} />
+            <Monitor size={16} aria-hidden="true" />
             {screen(item)}
           </span>
           <span>
-            <Weight size={16} />
+            <Weight size={16} aria-hidden="true" />
             {weight(item.weightKg)}
           </span>
         </div>
@@ -694,6 +952,7 @@ function RecommendationCard({
 }
 
 function DetailModal({ detail, onClose }: { detail: LaptopDetail; onClose: () => void }) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const rows = [
     ["价格", money(detail.latestPrice)],
     ["CPU", joinText(detail.cpuBrand, detail.cpuModel)],
@@ -713,19 +972,40 @@ function DetailModal({ detail, onClose }: { detail: LaptopDetail; onClose: () =>
     ["颜色", text(detail.color)]
   ];
 
+  useEffect(() => {
+    const previouslyFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusCloseButton = window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(focusCloseButton);
+      window.removeEventListener("keydown", onKeyDown);
+      previouslyFocusedElement?.focus();
+    };
+  }, [onClose]);
+
   return (
-    <div className="modalBackdrop" onClick={onClose}>
-      <article className="detailModal" onClick={(event) => event.stopPropagation()}>
-        <button className="modalClose" type="button" onClick={onClose}>
-          <X size={18} />
+    <div className="modalBackdrop">
+      <button className="modalDismissArea" type="button" aria-label="关闭笔记本详情" onClick={onClose} />
+      <article className="detailModal" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title">
+        <button ref={closeButtonRef} className="modalClose" type="button" aria-label="关闭笔记本详情" onClick={onClose}>
+          <X size={18} aria-hidden="true" />
         </button>
         <div className="detailHead">
           <div className="imageBox large">
-            {detail.imageUrl ? <img src={detail.imageUrl} alt={`${detail.brandName}${detail.model}`} /> : <Database size={42} />}
+            {detail.imageUrl ? (
+              <img src={detail.imageUrl} alt={`${detail.brandName} ${detail.model} 笔记本电脑`} width={180} height={150} />
+            ) : (
+              <Database size={42} aria-hidden="true" />
+            )}
           </div>
           <div>
             <span className="brandText">{detail.brandName}</span>
-            <h2>{detail.model}</h2>
+            <h2 id="detail-modal-title">{detail.model}</h2>
             <p>{detail.rawTitle}</p>
           </div>
         </div>
@@ -751,19 +1031,19 @@ function money(value?: number) {
   if (value == null) {
     return "价格未知";
   }
-  return `￥${value.toLocaleString("zh-CN")}`;
+  return currencyFormatter.format(value);
 }
 
 function capacity(value?: number) {
-  return value == null ? "未知" : `${value}GB`;
+  return value == null ? "未知" : `${value}\u00a0GB`;
 }
 
 function weight(value?: number) {
-  return value == null ? "重量未知" : `${value}kg`;
+  return value == null ? "重量未知" : `${value}\u00a0kg`;
 }
 
 function screen(item: Pick<LaptopListItem, "screenSizeInch" | "screenResolution" | "refreshRateHz"> & { screenRefreshRateHz?: number }) {
-  const size = item.screenSizeInch ? `${item.screenSizeInch}英寸` : "尺寸未知";
+  const size = item.screenSizeInch ? `${item.screenSizeInch}\u00a0英寸` : "尺寸未知";
   const resolution = item.screenResolution ?? "分辨率未知";
   const refreshRate = item.refreshRateHz ?? item.screenRefreshRateHz;
   const refresh = refreshRate ? `${refreshRate}Hz` : "";
@@ -780,11 +1060,50 @@ function joinText(left?: string | number, right?: string | number, separator = "
 }
 
 function formatRangeMin(value?: number | null) {
-  return value == null ? "最低" : `最低 ${value}`;
+  return value == null ? "例如：3000…" : `例如：${formatNumber(value)}…`;
 }
 
-function formatRangeMax(value?: number | null) {
-  return value == null ? "最高" : `最高 ${value}`;
+function formatRangeMax(value?: number | null, fallback = "1.5") {
+  return value == null ? `例如：${fallback}…` : `例如：${formatNumber(value)}…`;
+}
+
+function formatNumber(value: number) {
+  return numberFormatter.format(value);
+}
+
+function readFiltersFromSearch(search: string): LaptopFilters {
+  const params = new URLSearchParams(search);
+  const filters = { ...emptyFilters };
+  filterFields.forEach((field) => {
+    const value = params.get(field);
+    if (value !== null) {
+      filters[field] = value;
+    }
+  });
+  if (!sortOptions.some((option) => option.value === filters.sort)) {
+    filters.sort = emptyFilters.sort;
+  }
+  return filters;
+}
+
+function readPageFromSearch(search: string) {
+  const page = Number(new URLSearchParams(search).get("page"));
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
+
+function buildFilterSearch(filters: LaptopFilters, page: number) {
+  const params = new URLSearchParams();
+  filterFields.forEach((field) => {
+    const value = filters[field].trim();
+    if (value && (field !== "sort" || value !== emptyFilters.sort)) {
+      params.set(field, value);
+    }
+  });
+  if (page > 1) {
+    params.set("page", String(page));
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
 }
 
 function loadRecommendSessionState(): RecommendSessionState {
@@ -869,7 +1188,7 @@ function buildSessionTitle(messages: ChatMessage[]) {
   if (!firstUserMessage) {
     return "新对话";
   }
-  return firstUserMessage.length > 22 ? `${firstUserMessage.slice(0, 22)}...` : firstUserMessage;
+  return firstUserMessage.length > 22 ? `${firstUserMessage.slice(0, 22)}…` : firstUserMessage;
 }
 
 function buildChatRequestMessages(messages: ChatMessage[]) {
