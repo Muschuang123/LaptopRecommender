@@ -34,6 +34,28 @@ export function getLaptopDetail(id: number): Promise<LaptopDetail> {
   return request<LaptopDetail>(`/api/laptops/${id}`);
 }
 
+export function getCartItems(): Promise<LaptopListItem[]> {
+  return request<LaptopListItem[]>("/api/cart");
+}
+
+export function addCartItem(laptopId: number): Promise<void> {
+  return request<void>("/api/cart/items", {
+    method: "POST",
+    body: JSON.stringify({ laptopId })
+  });
+}
+
+export function deleteCartItems(laptopIds: number[]): Promise<void> {
+  return request<void>("/api/cart/items", {
+    method: "DELETE",
+    body: JSON.stringify({ laptopIds })
+  });
+}
+
+export function clearCart(): Promise<void> {
+  return request<void>("/api/cart", { method: "DELETE" });
+}
+
 export function getLaptops(filters: LaptopFilters, page: number, size: number): Promise<PageResult<LaptopListItem>> {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {

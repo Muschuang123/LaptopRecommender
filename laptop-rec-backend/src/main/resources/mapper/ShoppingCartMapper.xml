@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.example.laptoprec.mapper.ShoppingCartMapper">
+
+    <select id="selectItems" resultType="com.example.laptoprec.vo.LaptopListItemVO">
+        SELECT
+            l.id,
+            b.name AS brand_name,
+            l.model,
+            l.product_type,
+            l.usage_positioning,
+            l.weight_kg,
+            l.image_url,
+            l.source_url,
+            l.release_date,
+            pr.price AS latest_price,
+            c.model AS cpu_model,
+            g.model AS gpu_model,
+            g.gpu_type,
+            m.capacity_gb AS memory_capacity_gb,
+            st.capacity_gb AS storage_capacity_gb,
+            sc.size_inch AS screen_size_inch,
+            sc.resolution AS screen_resolution,
+            sc.refresh_rate_hz
+        FROM shopping_cart cart
+        JOIN laptop l ON l.id = cart.laptop_id
+        JOIN brand b ON b.id = l.brand_id
+        LEFT JOIN cpu_spec c ON c.id = l.cpu_id
+        LEFT JOIN gpu_spec g ON g.id = l.gpu_id
+        LEFT JOIN memory_spec m ON m.id = l.memory_id
+        LEFT JOIN storage_spec st ON st.id = l.storage_id
+        LEFT JOIN screen_spec sc ON sc.id = l.screen_id
+        LEFT JOIN price_record pr ON pr.id = (
+            SELECT pr2.id
+            FROM price_record pr2
+            WHERE pr2.laptop_id = l.id
+            ORDER BY pr2.crawled_at DESC, pr2.id DESC
+            LIMIT 1
+        )
+        ORDER BY cart.created_at DESC, l.id DESC
+    </select>
+
+    <insert id="insertIgnore">
+        INSERT IGNORE INTO shopping_cart (laptop_id)
+        VALUES (#{laptopId})
+    </insert>
+
+    <delete id="deleteByLaptopIds">
+        DELETE FROM shopping_cart
+        WHERE laptop_id IN
+        <foreach collection="laptopIds" item="laptopId" open="(" separator="," close=")">
+            #{laptopId}
+        </foreach>
+    </delete>
+
+    <delete id="deleteAll">
+        DELETE FROM shopping_cart
+    </delete>
+</mapper>

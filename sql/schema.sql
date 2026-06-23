@@ -137,6 +137,12 @@ CREATE TABLE IF NOT EXISTS price_record (
   CONSTRAINT fk_price_laptop FOREIGN KEY (laptop_id) REFERENCES laptop(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS shopping_cart (
+  laptop_id BIGINT PRIMARY KEY,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_shopping_cart_laptop FOREIGN KEY (laptop_id) REFERENCES laptop(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS crawl_source (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   source_name VARCHAR(64) NOT NULL UNIQUE,
@@ -167,3 +173,4 @@ CREATE INDEX idx_laptop_storage ON laptop(storage_id);
 CREATE INDEX idx_laptop_screen ON laptop(screen_id);
 CREATE INDEX idx_laptop_weight ON laptop(weight_kg);
 CREATE INDEX idx_price_laptop_time ON price_record(laptop_id, crawled_at);
+CREATE INDEX idx_shopping_cart_created_at ON shopping_cart(created_at);

@@ -70,6 +70,8 @@ optional:file:./.env.local[.properties]
 
 该命令会读取 `application-local.yml`，自动创建数据库、导入 `sql/schema.sql`，爬取 ZOL 笔记本排行榜并写入初始数据。
 
+如果数据库已按旧版本初始化，只需额外导入 `sql/shopping_cart.sql`，无需重新爬取数据。该文件创建用于持久化已选机型的 `shopping_cart` 表。
+
 ## 3. 在线更新笔记本数据
 
 后续更新数据时继续在项目根目录执行：
@@ -232,6 +234,33 @@ laptop-rec-backend\src\main\java\com\example\laptoprec\service\impl\RecommendSer
 ```
 
 DeepSeek 不能直接执行 SQL，只能通过后端允许的工具查询数据库。
+
+### 购物车
+
+购物车仅能从条件筛选结果添加机型。`shopping_cart` 只保存 `laptop_id`，并通过外键关联 `laptop`，因此购物车展示的价格和规格始终读取当前数据库中的最新数据；同一机型只能加入一次。
+
+```http
+GET /api/cart
+POST /api/cart/items
+DELETE /api/cart/items
+DELETE /api/cart
+```
+
+添加请求：
+
+```json
+{
+  "laptopId": 1
+}
+```
+
+批量删除请求：
+
+```json
+{
+  "laptopIds": [1, 2, 3]
+}
+```
 
 ## 6. 构建和检查
 

@@ -11,13 +11,23 @@ import {
   Search,
   Send,
   SlidersHorizontal,
+  ShoppingCart,
   Sparkles,
   Trash2,
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent, MouseEvent, ReactNode } from "react";
-import { chatRecommend, getLaptopDetail, getLaptopOptions, getLaptops } from "./api";
+import {
+  addCartItem,
+  chatRecommend,
+  clearCart,
+  deleteCartItems,
+  getCartItems,
+  getLaptopDetail,
+  getLaptopOptions,
+  getLaptops
+} from "./api";
 import type {
   ChatMessage,
   LaptopDetail,
@@ -103,6 +113,9 @@ export default function App() {
   if (location.path === "/recommend") {
     return <RecommendPage navigate={navigate} />;
   }
+  if (location.path === "/cart") {
+    return <CartPage navigate={navigate} />;
+  }
   return <HomePage navigate={navigate} />;
 }
 
@@ -112,6 +125,10 @@ function HomePage({ navigate }: { navigate: (path: string) => void }) {
       <SkipLink />
       <main id="main-content" className="homeShell" tabIndex={-1}>
         <div className="ambientGrid" />
+        <AppLink className="homeCartButton" to="/cart" navigate={navigate}>
+          <ShoppingCart size={19} aria-hidden="true" />
+          购物车
+        </AppLink>
         <section className="hero">
           <div className="heroCopy">
             <div className="heroMark">
@@ -229,11 +246,20 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<LaptopDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [cartItemIds, setCartItemIds] = useState<Set<number>>(() => new Set());
+  const [addingCartItemId, setAddingCartItemId] = useState<number | null>(null);
+  const [cartFeedback, setCartFeedback] = useState("");
   const pageSize = 12;
 
   useEffect(() => {
     getLaptopOptions()
       .then(setOptions)
+      .catch((exception: Error) => setError(exception.message));
+  }, []);
+
+  useEffect(() => {
+    getCartItems()
+      .then((items) => setCartItemIds(new Set(items.map((item) => item.id))))
       .catch((exception: Error) => setError(exception.message));
   }, []);
 
@@ -288,6 +314,23 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
       .finally(() => setDetailLoading(false));
   };
 
+  const addToCart = async (item: LaptopListItem) => {
+    if (addingCartItemId !== null || cartItemIds.has(item.id)) {
+      return;
+    }
+    setAddingCartItemId(item.id);
+    setCartFeedback("");
+    try {
+      await addCartItem(item.id);
+      setCartItemIds((current) => new Set(current).add(item.id));
+      setCartFeedback(`已将 ${item.brandName} ${item.model} 加入购物车。`);
+    } catch (exception) {
+      setCartFeedback(exception instanceof Error ? exception.message : "加入购物车失败");
+    } finally {
+      setAddingCartItemId(null);
+    }
+  };
+
   return (
     <>
       <SkipLink />
@@ -304,6 +347,10 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
           <h1>按条件筛选</h1>
           <p>筛选项来自数据库，结果实时组合。</p>
         </div>
+        <AppLink className="cartNavButton" to="/cart" navigate={navigate}>
+          <ShoppingCart size={18} aria-hidden="true" />
+          购物车
+        </AppLink>
       </header>
 
       <section className="filterLayout">
@@ -481,12 +528,20 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
 
             <div className="laptopGrid">
               {data?.records.map((item) => (
-                <LaptopCard key={item.id} item={item} onDetail={() => openDetail(item.id)} />
+                <LaptopCard
+                  key={item.id}
+                  item={item}
+                  onDetail={() => openDetail(item.id)}
+                  onAddToCart={() => addToCart(item)}
+                  isInCart={cartItemIds.has(item.id)}
+                  addingToCart={addingCartItemId === item.id}
+                />
               ))}
             </div>
           </div>
 
           <div className="pager">
+            {cartFeedback && <p className="cartPagerStatus" role="status">{cartFeedback}</p>}
             <p className="pagerStatus" aria-live="polite">
               第 {formatNumber(page)} / {formatNumber(totalPages)} 页
             </p>
@@ -516,6 +571,9 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
     detail: LaptopDetail;
     reason: string;
   } | null>(null);
+  const [cartItemIds, setCartItemIds] = useState<Set<number>>(() => new Set());
+  const [addingCartItemId, setAddingCartItemId] = useState<number | null>(null);
+  const [cartFeedback, setCartFeedback] = useState("");
 
   const activeSession = useMemo(() => {
     return (
@@ -544,6 +602,12 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
   useEffect(() => {
     saveRecommendSessionState(sessionState);
   }, [sessionState]);
+
+  useEffect(() => {
+    getCartItems()
+      .then((items) => setCartItemIds(new Set(items.map((item) => item.id))))
+      .catch((exception: Error) => setCartFeedback(exception.message));
+  }, []);
 
   useEffect(() => {
     const inputEl = inputRef.current;
@@ -647,6 +711,23 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
     }, 0);
   };
 
+  const addToCart = async (item: LaptopListItem) => {
+    if (addingCartItemId !== null || cartItemIds.has(item.id)) {
+      return;
+    }
+    setAddingCartItemId(item.id);
+    setCartFeedback("");
+    try {
+      await addCartItem(item.id);
+      setCartItemIds((current) => new Set(current).add(item.id));
+      setCartFeedback(`已将 ${item.brandName} ${item.model} 加入购物车。`);
+    } catch (exception) {
+      setCartFeedback(exception instanceof Error ? exception.message : "加入购物车失败");
+    } finally {
+      setAddingCartItemId(null);
+    }
+  };
+
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -670,6 +751,10 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
           <h1>DeepSeek推荐</h1>
           <p>仅查询本地数据库，结果可核对。</p>
         </div>
+        <AppLink className="cartNavButton" to="/cart" navigate={navigate}>
+          <ShoppingCart size={18} aria-hidden="true" />
+          购物车
+        </AppLink>
       </header>
 
        <aside className="recommendResults">
@@ -680,6 +765,7 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
           </div>
           <strong>{formatNumber(recommendationCards.length)}</strong>
         </div>
+        {cartFeedback && <p className="recommendCartStatus" role="status">{cartFeedback}</p>}
         {recommendationCards.length ? (
           <div className="recommendListScroller laptopGrid">
             {recommendationCards.map(({ key, detail, reason }) => (
@@ -687,6 +773,9 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
                 key={key}
                 item={detail}
                 onDetail={() => setSelectedRecommendation({ detail, reason })}
+                onAddToCart={() => addToCart(detail)}
+                isInCart={cartItemIds.has(detail.id)}
+                addingToCart={addingCartItemId === detail.id}
               />
             ))}
           </div>
@@ -754,13 +843,13 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
         <form className="chatComposer" onSubmit={sendMessage}>
           <textarea
             ref={inputRef}
+            className={input ? "composerInput composerInputFilled" : "composerInput composerInputEmpty"}
             name="message"
             aria-label="输入推荐需求"
             value={input}
             autoComplete="off"
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleComposerKeyDown}
-            placeholder="例如：预算 8,000 元，适合编程与轻度游戏…"
             rows={1}
           />
           <button className="primaryButton iconOnlyText" type="submit" disabled={pending}>
@@ -785,6 +874,173 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
           onClose={() => setSelectedRecommendation(null)}
         />
       )}
+      </main>
+    </>
+  );
+}
+
+function CartPage({ navigate }: { navigate: (path: string) => void }) {
+  const [items, setItems] = useState<LaptopListItem[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set());
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState<LaptopDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const loadCart = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const nextItems = await getCartItems();
+      setItems(nextItems);
+      setSelectedIds((current) => new Set([...current].filter((id) => nextItems.some((item) => item.id === id))));
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : "购物车读取失败");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCart();
+  }, [loadCart]);
+
+  const allSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id));
+  const selectedCount = selectedIds.size;
+
+  const toggleItem = (id: number) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(items.map((item) => item.id)));
+  };
+
+  const openDetail = (id: number) => {
+    setDetailLoading(true);
+    getLaptopDetail(id)
+      .then(setSelected)
+      .catch((exception: Error) => setError(exception.message))
+      .finally(() => setDetailLoading(false));
+  };
+
+  const removeSelected = async () => {
+    const laptopIds = [...selectedIds];
+    if (!laptopIds.length || pending) {
+      return;
+    }
+    setPending(true);
+    setError("");
+    try {
+      await deleteCartItems(laptopIds);
+      await loadCart();
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : "删除购物车项目失败");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const removeAll = async () => {
+    if (!items.length || pending || !window.confirm("确认清空购物车中的全部笔记本吗？")) {
+      return;
+    }
+    setPending(true);
+    setError("");
+    try {
+      await clearCart();
+      await loadCart();
+    } catch (exception) {
+      setError(exception instanceof Error ? exception.message : "清空购物车失败");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <>
+      <SkipLink />
+      <main id="main-content" className="appShell cartShell" tabIndex={-1}>
+        <header className="recommendHeader cartHeader">
+          <AppLink className="recommendBackButton" to="/" navigate={navigate}>
+            <ArrowLeft size={18} aria-hidden="true" />
+            返回首页
+          </AppLink>
+          <span className="recommendHeaderIcon">
+            <ShoppingCart size={22} aria-hidden="true" />
+          </span>
+          <div className="recommendHeaderText">
+            <h1>购物车</h1>
+            <p>已选机型保存在数据库中，重启页面后仍会保留。</p>
+          </div>
+        </header>
+
+        <section className="cartPanel" aria-busy={loading || pending}>
+          {error && <div className="errorBox" role="alert">{error}</div>}
+          {loading && <div className="statusBox" role="status" aria-live="polite">正在读取购物车…</div>}
+          {!loading && !error && !items.length && (
+            <div className="statusBox cartEmptyState" role="status">
+              <p>购物车还是空的。请从筛选结果中加入候选机型。</p>
+              <AppLink className="primaryAction emptyCartAction" to="/filter" navigate={navigate}>
+                <SlidersHorizontal size={18} aria-hidden="true" />
+                前往筛选
+              </AppLink>
+            </div>
+          )}
+          {!loading && items.length > 0 && (
+            <div className="cartWorkspace">
+              <div className="cartCardScroller">
+                <div className="cartCardGrid laptopGrid">
+                  {items.map((item) => (
+                    <LaptopCard
+                      key={item.id}
+                      item={item}
+                      onDetail={() => openDetail(item.id)}
+                      isSelected={selectedIds.has(item.id)}
+                      selectionControl={
+                        <label className="cartCardSelect">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(item.id)}
+                            onChange={() => toggleItem(item.id)}
+                            disabled={pending}
+                          />
+                          <span>{selectedIds.has(item.id) ? "已选择" : "选择"}</span>
+                        </label>
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          {!loading && items.length > 0 && (
+            <div className="cartToolbar">
+              <button className="ghostButton compactButton" type="button" onClick={toggleAll} disabled={pending}>
+                {allSelected ? "取消全选" : "全选"}
+              </button>
+              <button className="ghostButton compactButton cartDeleteButton" type="button" onClick={removeSelected} disabled={!selectedCount || pending}>
+                <Trash2 size={17} aria-hidden="true" />
+                删除已选{selectedCount ? ` (${formatNumber(selectedCount)})` : ""}
+              </button>
+              <button className="ghostButton compactButton cartClearButton" type="button" onClick={removeAll} disabled={pending}>
+                <Trash2 size={17} aria-hidden="true" />
+                一键清空
+              </button>
+            </div>
+          )}
+        </section>
+        {detailLoading && <div className="floatingStatus" role="status" aria-live="polite">正在读取详情…</div>}
+        {selected && <DetailModal detail={selected} onClose={() => setSelected(null)} />}
       </main>
     </>
   );
@@ -854,9 +1110,25 @@ function AppLink({
   );
 }
 
-function LaptopCard({ item, onDetail }: { item: LaptopListItem; onDetail: () => void }) {
+function LaptopCard({
+  item,
+  onDetail,
+  onAddToCart,
+  selectionControl,
+  isInCart = false,
+  isSelected = false,
+  addingToCart = false
+}: {
+  item: LaptopListItem;
+  onDetail: () => void;
+  onAddToCart?: () => void;
+  selectionControl?: ReactNode;
+  isInCart?: boolean;
+  isSelected?: boolean;
+  addingToCart?: boolean;
+}) {
   return (
-    <article className="laptopCard">
+    <article className={`laptopCard${onAddToCart || selectionControl ? " withSecondaryAction" : ""}${isSelected ? " isSelected" : ""}`}>
       <div className="cardBody">
       <div className="cardTop">
         <div className="thumbBox">
@@ -871,8 +1143,11 @@ function LaptopCard({ item, onDetail }: { item: LaptopListItem; onDetail: () => 
               <span className="brandText">{item.brandName}</span>
               <h2>{item.model}</h2>
             </div>
-            <strong>{money(item.latestPrice)}</strong>
           </div>
+        </div>
+        <div className="cardPriceLine">
+          <span>参考价</span>
+          <strong>{money(item.latestPrice)}</strong>
         </div>
         <div className="specRow">
           <span>
@@ -888,10 +1163,19 @@ function LaptopCard({ item, onDetail }: { item: LaptopListItem; onDetail: () => 
             {screen(item)}
           </span>
         </div>
-        <button className="detailButton" type="button" onClick={onDetail}>
-          查看详情
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
+        <div className="cardActions">
+          {selectionControl}
+          <button className="detailButton" type="button" onClick={onDetail}>
+            查看详情
+            <ChevronRight size={16} aria-hidden="true" />
+          </button>
+          {onAddToCart && (
+            <button className="cartAddButton" type="button" onClick={onAddToCart} disabled={isInCart || addingToCart}>
+              <ShoppingCart size={16} aria-hidden="true" />
+              {addingToCart ? "正在加入…" : isInCart ? "已加入" : "加入购物车"}
+            </button>
+          )}
+        </div>
       </div>
     </article>
   );
