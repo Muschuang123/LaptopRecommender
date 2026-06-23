@@ -1,24 +1,58 @@
-# 笔记本电脑推荐系统
+# LaptopRecommender
 
-本项目是一个本地运行的笔记本推荐系统：
+一个本地运行的笔记本电脑数据采集、筛选与对话式推荐系统。系统从 ZOL 笔记本排行榜和参数页采集数据，写入 MySQL；Spring Boot 提供查询、购物车与 DeepSeek 推荐接口；React 前端提供筛选、详情、购物车和推荐对话页面。
 
-- `crawler/`：爬取并规范化笔记本数据，生成 SQL。
-- `sql/`、`data/crawl_output/`：数据库表结构和爬虫输出。
-- `laptop-rec-backend/`：Spring Boot 后端，提供列表筛选、详情和 DeepSeek 推荐接口。
-- `laptop-rec-frontend/`：Vite React 前端，提供首页、条件筛选页和推荐聊天页。
+## 当前功能
+
+- 采集 ZOL 榜单和允许访问的参数页，清洗为结构化笔记本规格。
+- 初始化 MySQL 表结构，并生成或执行安全的在线更新 SQL。
+- 按品牌、用途、CPU/GPU、价格、内存、硬盘、屏幕、重量等条件筛选和排序。
+- 查看机型完整规格、最新采集价格和接口汇总。
+- 使用 DeepSeek 的工具调用查询本地数据库，输出带机型详情的推荐与追问。
+- 将筛选结果加入一个本地数据库级的购物车，支持批量删除和清空。
+
+系统没有用户认证或多用户隔离；`shopping_cart` 是所有访问者共享的一份购物车。
+
+## 仓库结构
+
+```text
+.
+├─ crawler/                       # ZOL 采集、规格规范化、SQL 生成与在线更新
+│  ├─ sources/zol.py              # 榜单/参数页解析及 robots.txt 检查
+│  ├─ normalizer.py               # 规格字段清洗、单位和型号解析
+│  ├─ sql_writer.py               # 普通 upsert 与安全在线更新 SQL 写入器
+│  ├─ cli.py                      # 只采集并生成 JSON/SQL 的命令行入口
+│  └─ online_update.py            # 可初始化数据库、生成并执行安全更新 SQL 的入口
+├─ sql/schema.sql                 # 当前完整 MySQL 表结构，包含 shopping_cart
+├─ laptop-rec-backend/            # Spring Boot + MyBatis-Plus 后端
+│  ├─ src/main/java/              # Controller、Service、Mapper、DTO、VO 等
+│  ├─ src/main/resources/mapper/  # 笔记本和购物车查询 SQL
+│  ├─ application-local.example.yml
+│  └─ .env.local.example
+├─ laptop-rec-frontend/           # Vite + React + TypeScript 单页前端
+│  └─ src/                        # 首页、筛选、详情弹窗、推荐和购物车界面
+├─ tests/                         # 爬虫规范化及在线更新行为测试
+├─ README_CRAWLER.md              # 爬虫模块补充说明
+└─ README.md                      # 本文件
+```
+
+`data/crawl_output/`、前端 `node_modules/`/`dist/`、后端 `target/` 和本机密钥配置均为忽略文件，不会提交到 Git。
 
 ## 环境要求
 
-- Java 17+
-- Maven
-- Node.js 22+
-- MySQL 8.x
+- Java 17 或更高版本（项目编译目标为 Java 17）与 Maven
+- Node.js 22+ 与 npm
+- MySQL 8.x，并且 `mysql` 命令可在命令行中使用
+- Python 3.11（本仓库可用环境：`~/.conda/envs/t/python.exe`）
+- Python 包：`requests`；安装 `tqdm` 后采集时会显示进度条；运行爬虫测试还需要 `pytest`
 
-Windows PowerShell 如果无法运行 `npm`，使用 `npm.cmd`。
+Windows PowerShell 如遇到执行策略限制，请使用 `npm.cmd`，而不是 `npm`。
 
-## 1. 配置本地密钥和数据库
+## 1. 配置数据库和 DeepSeek
 
-真实数据库信息和 API Key 不提交到 Git。推荐复制后端本地配置示例：
+数据库配置是后端与在线更新的必要条件；DeepSeek API Key 只在使用对话推荐时必需。
+
+在后端目录创建本机配置：
 
 ```powershell
 cd laptop-rec-backend
@@ -40,7 +74,7 @@ deepseek:
   model: "deepseek-v4-flash"
 ```
 
-`application-local.yml` 已被 `.gitignore` 忽略。也可以使用 `laptop-rec-backend/.env.local`：
+也可在 `laptop-rec-backend/.env.local` 中使用以下同名环境变量：
 
 ```properties
 DB_URL=jdbc:mysql://<db-host>:<db-port>/<db-name>?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
@@ -51,52 +85,46 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-flash
 ```
 
-后端会从当前工作目录读取：
+后端从其当前工作目录加载 `application-local.yml` 或 `.env.local`；因此启动后端前应先进入 `laptop-rec-backend/`。
 
-```yaml
-optional:file:./application-local.yml
-optional:file:./.env.local[.properties]
-```
+## 2. 初始化数据和后续更新
 
-所以启动后端前请先进入 `laptop-rec-backend/`。
-
-## 2. 初始化数据库和数据
-
-完成 `laptop-rec-backend/application-local.yml` 后，回到项目根目录执行：
+首次初始化时，在仓库根目录执行：
 
 ```powershell
 & $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --init-schema --execute
 ```
 
-该命令会读取 `application-local.yml`，自动创建数据库、导入 `sql/schema.sql`，爬取 ZOL 笔记本排行榜并写入初始数据。
+该命令会采集 ZOL 数据，创建配置中指定的数据库（如不存在），导入 `sql/schema.sql`，生成安全更新 SQL 并通过本机 `mysql` 客户端执行。`schema.sql` 已包含笔记本、规格、价格记录、端口、爬取日志和 `shopping_cart` 表。
 
-如果数据库已按旧版本初始化，只需额外导入 `sql/shopping_cart.sql`，无需重新爬取数据。该文件创建用于持久化已选机型的 `shopping_cart` 表。
-
-## 3. 在线更新笔记本数据
-
-后续更新数据时继续在项目根目录执行：
+后续更新价格和新增机型：
 
 ```powershell
 & $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --execute
 ```
 
-该命令的写库策略：
+默认的安全更新策略如下：
 
-- 已存在的机型：不覆盖 CPU、GPU、内存、硬盘、屏幕、重量、颜色等属性。
-- 已存在的机型：只追加一条新的价格记录。
-- 新出现的机型：插入规格、机型、接口和第一条价格。
-- 不执行 `DROP`、`TRUNCATE`、`ALTER`、`DELETE`。
+- 已存在机型不覆盖 CPU、GPU、内存、硬盘、屏幕、重量、颜色等已有规格。
+- 已存在机型追加新的价格记录；接口查询时会按采集时间和记录 ID 取最新价格。
+- 新机型才插入关联的规格和端口数据。
+- 生成的更新 SQL 不包含 `DROP`、`TRUNCATE`、`ALTER` 或 `DELETE`。
 
-如果只想爬取并生成安全 SQL，不立刻写入数据库，去掉 `--execute`：
+若只想检查采集结果和 SQL，不写入数据库，去掉 `--execute`：
 
 ```powershell
-& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update
+& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.online_update --max-details 5
 ```
 
-生成文件会写入 `data/crawl_output/`，其中 `laptops_safe_online_update_*.sql` 是安全更新 SQL。
-调试时可使用 `--max-details N` 限制本次最多抓取的参数页数量。
+生成的原始数据、规范化 JSON 和 SQL 位于 `data/crawl_output/`。只生成普通 upsert SQL 可使用：
 
-## 4. 启动服务
+```powershell
+& $env:USERPROFILE\.conda\envs\t\python.exe -B -m crawler.cli --delay 1.2
+```
+
+采集器会检查 ZOL 的 `robots.txt`，仅访问当前实现允许的榜单页和参数页；请保持合理的请求间隔。
+
+## 3. 启动后端和前端
 
 启动后端：
 
@@ -105,83 +133,57 @@ cd laptop-rec-backend
 mvn spring-boot:run
 ```
 
-后端默认地址：
-
-```text
-http://localhost:8080
-```
-
-验证后端：
-
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/api/laptops?size=3"
-Invoke-RestMethod -Uri "http://localhost:8080/api/laptops/options"
-Invoke-RestMethod -Uri "http://localhost:8080/api/laptops/1"
-```
-
-启动前端，另开一个 PowerShell：
-
-```powershell
-cd laptop-rec-frontend
-npm.cmd install
-npm.cmd run dev
-```
-
-前端默认地址：
-
-```text
-http://127.0.0.1:5173/
-```
-
-Vite 会把 `/api` 代理到 `http://localhost:8080`，所以本地使用时需要同时启动前端和后端。
-
-如果 8080 被占用：
+默认地址为 `http://localhost:8080`。若端口冲突，可临时设置：
 
 ```powershell
 $env:SERVER_PORT="18080"
 mvn spring-boot:run
 ```
 
-此时也要同步调整前端代理配置或接口地址。
-
-前端默认通过 Vite 代理访问后端：
-
-```text
-laptop-rec-frontend/vite.config.ts -> /api -> http://localhost:8080
-```
-
-如果后端不在 8080 端口，开发模式可修改 `vite.config.ts` 的 `target`；生产部署可在前端构建前设置接口前缀：
+启动前端（另开一个 PowerShell）：
 
 ```powershell
 cd laptop-rec-frontend
+npm.cmd ci
+npm.cmd run dev
+```
+
+前端默认地址为 `http://127.0.0.1:5173/`。开发服务器将 `/api` 代理到 `http://localhost:8080`。后端使用其他端口时，需同步调整 `laptop-rec-frontend/vite.config.ts` 的代理目标；构建部署版本时，也可设置：
+
+```powershell
 $env:VITE_API_BASE_URL="http://localhost:18080"
 npm.cmd run build
 ```
 
-## 5. 功能和接口
+前端页面路由为：
 
-首页包含两个入口：
+- `/`：功能入口
+- `/filter`：条件筛选、详情查看和加入购物车
+- `/recommend`：DeepSeek 对话推荐
+- `/cart`：购物车查看、批量删除和清空
 
-- `按条件筛选`
-- `DeepSeek 推荐`
+## API 概览
 
-### 条件筛选
+所有接口均使用统一响应包装：
 
-筛选页先读取数据库中的可选项：
-
-```http
-GET /api/laptops/options
+```json
+{
+  "success": true,
+  "code": 200,
+  "message": "ok",
+  "data": {}
+}
 ```
 
-返回品牌、产品类型、用途定位、内存容量、硬盘容量、屏幕尺寸、GPU 类型、价格范围和重量范围。
+### 笔记本查询
 
-筛选列表接口：
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| `GET` | `/api/laptops/options` | 返回数据库中的筛选选项和价格/重量范围 |
+| `GET` | `/api/laptops` | 分页筛选与排序 |
+| `GET` | `/api/laptops/{id}` | 返回完整机型规格 |
 
-```http
-GET /api/laptops
-```
-
-支持参数：
+列表接口支持参数：
 
 ```text
 keyword, brand, productType, usageKeyword, cpuKeyword, gpuKeyword, gpuType,
@@ -189,27 +191,20 @@ minPrice, maxPrice, minMemoryGb, minStorageGb, minScreenSize, maxWeightKg,
 sort, page, size
 ```
 
-`sort` 支持：
+`sort` 可选值为 `latest`、`priceAsc`、`priceDesc`、`weightAsc`、`screenDesc`。`page` 从 1 开始，`size` 默认 20、最大 100。
 
-```text
-latest, priceAsc, priceDesc, weightAsc, screenDesc
+示例：
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8080/api/laptops?brand=联想&minPrice=5000&maxPrice=12000&minMemoryGb=16&size=5"
 ```
 
-详情接口：
-
-```http
-GET /api/laptops/{id}
-```
-
-### DeepSeek 推荐
-
-推荐页调用：
+### 对话推荐
 
 ```http
 POST /api/recommend/chat
+Content-Type: application/json
 ```
-
-请求示例：
 
 ```json
 {
@@ -222,81 +217,39 @@ POST /api/recommend/chat
 }
 ```
 
-后端使用白名单 Tool Loop：
-
-- `search_laptops`：按安全条件查询数据库。
-- `get_laptop_detail`：按 id 查询详情。
-
-每次对话开启时使用的 Prompt 写死在：
-
-```text
-laptop-rec-backend\src\main\java\com\example\laptoprec\service\impl\RecommendServiceImpl.java
-```
-
-DeepSeek 不能直接执行 SQL，只能通过后端允许的工具查询数据库。
+后端让模型只能调用受控工具 `search_laptops` 和 `get_laptop_detail` 检索本地数据库，最多进行有限轮工具调用。最终响应包含 `reply`、`recommendations`（每项含 `laptopId`、`reason`、`detail`）和 `followUpQuestions`；推荐机型必须能取得对应详情。未配置 API Key 时，该接口会明确返回配置错误。
 
 ### 购物车
 
-购物车仅能从条件筛选结果添加机型。`shopping_cart` 只保存 `laptop_id`，并通过外键关联 `laptop`，因此购物车展示的价格和规格始终读取当前数据库中的最新数据；同一机型只能加入一次。
+| 方法 | 路径 | 请求体 |
+| --- | --- | --- |
+| `GET` | `/api/cart` | 无 |
+| `POST` | `/api/cart/items` | `{ "laptopId": 1 }` |
+| `DELETE` | `/api/cart/items` | `{ "laptopIds": [1, 2, 3] }` |
+| `DELETE` | `/api/cart` | 无 |
 
-```http
-GET /api/cart
-POST /api/cart/items
-DELETE /api/cart/items
-DELETE /api/cart
-```
+购物车仅保存 `laptop_id`，展示时重新关联机型和最新价格，因此价格与规格会随数据库数据更新。
 
-添加请求：
+## 构建与测试
 
-```json
-{
-  "laptopId": 1
-}
-```
-
-批量删除请求：
-
-```json
-{
-  "laptopIds": [1, 2, 3]
-}
-```
-
-## 6. 构建和检查
-
-后端测试：
+后端：
 
 ```powershell
 cd laptop-rec-backend
 mvn -q test
 ```
 
-前端生产构建：
+前端：
 
 ```powershell
 cd laptop-rec-frontend
 npm.cmd run build
 ```
 
-前端构建产物在 `laptop-rec-frontend/dist/`，该目录不会提交到 Git。
-
-爬虫规范化测试：
+爬虫：
 
 ```powershell
-& $env:USERPROFILE\.conda\envs\t\python.exe -m pytest -q
+& $env:USERPROFILE\.conda\envs\t\python.exe -B -m pytest -q
 ```
 
-## 7. 常见问题
-
-前端没有数据：
-
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8080/api/laptops?size=1"
-mysql -u<db-username> -p -P<db-port> -h<db-host> -D <db-name> -e "SELECT COUNT(*) FROM laptop;"
-```
-
-DeepSeek 推荐提示未配置 API Key：填写 `laptop-rec-backend/application-local.yml` 或 `laptop-rec-backend/.env.local`，然后重启后端。
-
-PowerShell 中文显示乱码：通常只是终端编码问题，浏览器和接口 JSON 使用 UTF-8。
-
-`npm.ps1 cannot be loaded`：改用 `npm.cmd install` 和 `npm.cmd run dev`。
+本仓库的单元测试不需要已启动的 MySQL、DeepSeek 或外部爬虫请求；运行服务和实际采集则需要完成相应配置。
