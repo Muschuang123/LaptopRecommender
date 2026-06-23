@@ -133,7 +133,7 @@ function HomePage({ navigate }: { navigate: (path: string) => void }) {
               <Sparkles size={18} aria-hidden="true" />
               <span>为真实需求匹配真实配置</span>
             </div>
-            <h1>更快选到适合你的下一台笔记本</h1>
+            <h1>适合你的下一台笔记本</h1>
             <p>从数据库规格筛选到自然语言推荐，把预算、性能、便携与用途放在同一套决策框架里。</p>
             <div className="heroActions">
               <AppLink className="primaryAction" to="/filter" navigate={navigate}>
@@ -727,7 +727,7 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
           <Bot size={22} aria-hidden="true" />
         </span>
         <div className="recommendHeaderText">
-          <h1>DeepSeek推荐</h1>
+          <h1>DeepSeek 推荐</h1>
           <p>仅查询本地数据库，结果可核对。</p>
         </div>
         <AppLink className="cartNavButton" to="/cart" navigate={navigate}>
@@ -825,7 +825,7 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
             {pending ? (
               <>
                 <span className="buttonSpinner" aria-hidden="true" />
-                正在发送…
+                思考中…
               </>
             ) : (
               <>

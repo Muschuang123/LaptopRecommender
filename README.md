@@ -163,7 +163,7 @@ npm.cmd run build
 首页包含两个入口：
 
 - `按条件筛选`
-- `DeepSeek推荐`
+- `DeepSeek 推荐`
 
 ### 条件筛选
 

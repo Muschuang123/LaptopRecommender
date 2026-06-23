@@ -42,8 +42,12 @@ public class RecommendServiceImpl implements RecommendService {
     private static final int MAX_HISTORY_MESSAGES = 20;
     private static final int MAX_TOOL_ROUNDS = 4;
     private static final int MAX_TOOL_RESULTS = 10;
+    private static final int MAX_RECALL_RESULTS = 60;
     private static final int MAX_RECOMMENDATIONS = 10;
     private static final int MAX_REASON_LENGTH = 600;
+    private static final String BRAND_DIVERSITY_AUTO = "auto";
+    private static final String BRAND_DIVERSITY_REQUIRED = "required";
+    private static final String BRAND_DIVERSITY_OFF = "off";
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
@@ -90,12 +94,23 @@ public class RecommendServiceImpl implements RecommendService {
                 ));
                 continue;
             }
-            return buildFinalResponse(message.path("content").asText(""), lastSearchResults, detailById);
+            String content = message.path("content").asText("");
+            List<Long> missingDetailIds = findMissingDetailIds(content, lastSearchResults, detailById);
+            if (!missingDetailIds.isEmpty()) {
+                messages.add(objectMapper.convertValue(message, MAP_TYPE));
+                messages.add(Map.of(
+                        "role", "user",
+                        "content", "你选择的以下候选尚未查询完整详情：" + missingDetailIds
+                                + "。请先仅对这些 id 调用 get_laptop_detail；随后再输出最终严格 JSON。"
+                ));
+                continue;
+            }
+            return buildFinalResponse(content, lastSearchResults, detailById);
         }
 
         messages.add(Map.of(
                 "role", "user",
-                "content", "工具调用轮数已达上限。请基于已有工具结果输出最终严格 JSON；如果没有完全满足条件的数据库机型，请在 reply 中说明，并用 followUpQuestions 询问是否放宽条件。recommendations 只能使用工具返回过的 laptopId。不要再调用工具。"
+                "content", "工具调用轮数已达上限。请基于已有工具结果输出最终严格 JSON；如果没有完全满足条件的数据库机型，请在 reply 中说明，并用 followUpQuestions 询问是否放宽条件。recommendations 只能使用已调用 get_laptop_detail 的 laptopId。不要再调用工具。"
         ));
         JsonNode response = callDeepSeek(messages, false);
         JsonNode message = response.path("choices").path(0).path("message");
@@ -135,11 +150,14 @@ public class RecommendServiceImpl implements RecommendService {
     private String systemPrompt() {
         return """
                 你是中文笔记本推荐 Agent。只能推荐工具返回过的数据库机型；机型、价格、参数以工具结果为准，不编造。
-                信息不足时追问预算、用途、便携性、显卡/游戏需求、品牌偏好。信息足够时先 search_laptops，再对最终推荐调用 get_laptop_detail。
+                信息不足时追问预算、用途、便携性、显卡/游戏需求、品牌偏好。信息足够时先 search_laptops，再对最终准备推荐的每台机型调用 get_laptop_detail。
+                search_laptops 会先从数据库宽召回，再在服务端做确定性的品牌多样性重排；records 的顺序已综合候选排序与多样性，不要自行随机打乱。
+                用户没有指定单一品牌时，brandDiversity 使用 auto；用户明确想比较多个品牌时使用 required；用户明确指定单一品牌时使用 off。
+                sort 必须对应用户的主要取舍：预算优先用 priceAsc，便携优先用 weightAsc，大屏优先用 screenDesc；没有明确取舍时才使用 latest。
                 连续搜索仍无结果时停止调用工具，说明数据库没有完全满足条件的机型，并询问是否放宽预算、品牌、年份或显卡要求，你最多使用 4 轮工具调用来查询数据库。
                 注意数据库中含有最新机型的相关数据，可以试探性地搜索新型号配件。
                 最终只输出严格 JSON，不要 Markdown，不要 reasoning_content，不要在 reply 里写“还需要确认：”列表。
-                recommendations 最多 10 条，laptopId 必须来自本轮工具结果；每条必须有非空字符串 reason，且只评价同一 laptopId。
+                recommendations 最多 10 条，laptopId 必须来自 search_laptops 且已调用 get_laptop_detail 的工具结果；每条必须有非空字符串 reason，且只评价同一 laptopId。
                 reason 可基于通用硬件知识评价性能、显卡/游戏或创作、便携、屏幕、内存/硬盘、价格取舍，但不得引用外部评测或数据库外机型。
                 JSON 格式：
                 {
@@ -233,14 +251,15 @@ public class RecommendServiceImpl implements RecommendService {
         properties.put("minScreenSize", numberSchema("最低屏幕尺寸，单位英寸"));
         properties.put("maxWeightKg", numberSchema("最高重量，单位 kg"));
         properties.put("sort", enumSchema("排序方式", List.of("latest", "priceAsc", "priceDesc", "weightAsc", "screenDesc")));
-        properties.put("size", integerSchema("返回候选数量，最大 10"));
+        properties.put("brandDiversity", enumSchema("品牌多样性：auto 为未锁定品牌时自动覆盖多个品牌；required 为优先多品牌；off 为只按数据库排序", List.of(BRAND_DIVERSITY_AUTO, BRAND_DIVERSITY_REQUIRED, BRAND_DIVERSITY_OFF)));
+        properties.put("size", integerSchema("最终返回候选数量，最大 10；服务端会先宽召回再重排"));
 
         Map<String, Object> parameters = new LinkedHashMap<>();
         parameters.put("type", "object");
         parameters.put("properties", properties);
         parameters.put("additionalProperties", false);
 
-        return tool("search_laptops", "按安全白名单条件查询数据库中的候选笔记本，最多返回 10 条。", parameters);
+        return tool("search_laptops", "按安全白名单条件宽召回候选，并按品牌多样性确定性重排后返回。最多返回 10 条。", parameters);
     }
 
     private Map<String, Object> buildDetailTool() {
@@ -253,7 +272,7 @@ public class RecommendServiceImpl implements RecommendService {
         parameters.put("required", List.of("id"));
         parameters.put("additionalProperties", false);
 
-        return tool("get_laptop_detail", "根据笔记本 id 查询完整配置详情。", parameters);
+        return tool("get_laptop_detail", "根据本轮 search_laptops 返回的笔记本 id 查询完整配置详情。", parameters);
     }
 
     private Map<String, Object> tool(String name, String description, Map<String, Object> parameters) {
@@ -301,7 +320,7 @@ public class RecommendServiceImpl implements RecommendService {
         try {
             content = switch (toolName) {
                 case "search_laptops" -> searchLaptops(arguments, lastSearchResults);
-                case "get_laptop_detail" -> getLaptopDetail(arguments, detailById);
+                case "get_laptop_detail" -> getLaptopDetail(arguments, lastSearchResults, detailById);
                 default -> Map.of("error", "不支持的工具：" + toolName);
             };
         } catch (Exception exception) {
@@ -340,15 +359,86 @@ public class RecommendServiceImpl implements RecommendService {
         query.setMaxWeightKg(decimalArg(arguments, "maxWeightKg"));
         query.setSort(textArg(arguments, "sort"));
         query.setPage(1);
-        query.setSize(clamp(intArg(arguments, "size"), 1, MAX_TOOL_RESULTS, MAX_TOOL_RESULTS));
+        int requestedSize = clamp(intArg(arguments, "size"), 1, MAX_TOOL_RESULTS, MAX_TOOL_RESULTS);
+        query.setSize(MAX_RECALL_RESULTS);
 
         PageResult<LaptopListItemVO> page = laptopService.queryLaptops(query);
-        mergeSearchResults(lastSearchResults, page.getRecords());
+        List<LaptopListItemVO> recalledCandidates = page.getRecords() == null ? List.of() : page.getRecords();
+        String brandDiversity = normalizeBrandDiversity(textArg(arguments, "brandDiversity"));
+        boolean applyBrandDiversity = shouldApplyBrandDiversity(brandDiversity, query.getBrand());
+        List<LaptopListItemVO> candidates = RecommendationCandidateSelector.select(
+                recalledCandidates,
+                requestedSize,
+                applyBrandDiversity
+        );
+        mergeSearchResults(lastSearchResults, candidates);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", page.getTotal());
-        result.put("records", page.getRecords());
+        result.put("recalledCount", recalledCandidates.size());
+        result.put("records", candidates);
+        result.put("diversity", Map.of(
+                "requested", brandDiversity,
+                "applied", applyBrandDiversity,
+                "availableBrandCount", RecommendationCandidateSelector.countDistinctBrands(recalledCandidates),
+                "selectedBrandCount", RecommendationCandidateSelector.countDistinctBrands(candidates)
+        ));
         return result;
+    }
+
+    private String normalizeBrandDiversity(String value) {
+        String mode = normalizeText(value);
+        if (mode == null) {
+            return BRAND_DIVERSITY_AUTO;
+        }
+        if (BRAND_DIVERSITY_AUTO.equals(mode)
+                || BRAND_DIVERSITY_REQUIRED.equals(mode)
+                || BRAND_DIVERSITY_OFF.equals(mode)) {
+            return mode;
+        }
+        throw new IllegalArgumentException("不支持的品牌多样性模式：" + mode);
+    }
+
+    private boolean shouldApplyBrandDiversity(String mode, String brand) {
+        if (!isBlank(brand) || BRAND_DIVERSITY_OFF.equals(mode)) {
+            return false;
+        }
+        return BRAND_DIVERSITY_AUTO.equals(mode) || BRAND_DIVERSITY_REQUIRED.equals(mode);
+    }
+
+    private List<Long> findMissingDetailIds(
+            String content,
+            List<LaptopListItemVO> lastSearchResults,
+            Map<Long, LaptopDetailVO> detailById
+    ) {
+        JsonNode json = parseJsonObjectContent(content);
+        if (json == null || !json.path("recommendations").isArray()) {
+            return Collections.emptyList();
+        }
+        List<Long> missingIds = new ArrayList<>();
+        Set<Long> seenIds = new LinkedHashSet<>();
+        for (JsonNode item : json.path("recommendations")) {
+            Long id = longArg(item, "laptopId");
+            if (id != null
+                    && seenIds.add(id)
+                    && containsLaptopId(lastSearchResults, id)
+                    && !detailById.containsKey(id)) {
+                missingIds.add(id);
+            }
+        }
+        return missingIds;
+    }
+
+    private boolean containsLaptopId(List<LaptopListItemVO> candidates, Long id) {
+        if (candidates == null || id == null) {
+            return false;
+        }
+        for (LaptopListItemVO candidate : candidates) {
+            if (candidate != null && id.equals(candidate.getId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void mergeSearchResults(List<LaptopListItemVO> target, List<LaptopListItemVO> records) {
@@ -370,10 +460,17 @@ public class RecommendServiceImpl implements RecommendService {
         }
     }
 
-    private LaptopDetailVO getLaptopDetail(JsonNode arguments, Map<Long, LaptopDetailVO> detailById) {
+    private LaptopDetailVO getLaptopDetail(
+            JsonNode arguments,
+            List<LaptopListItemVO> lastSearchResults,
+            Map<Long, LaptopDetailVO> detailById
+    ) {
         Long id = longArg(arguments, "id");
         if (id == null) {
             throw new IllegalArgumentException("get_laptop_detail 需要 id");
+        }
+        if (!containsLaptopId(lastSearchResults, id)) {
+            throw new IllegalArgumentException("get_laptop_detail 只能查询本轮 search_laptops 返回过的 id=" + id);
         }
         LaptopDetailVO detail = laptopService.getLaptopDetail(id);
         detailById.put(id, detail);
@@ -573,7 +670,7 @@ public class RecommendServiceImpl implements RecommendService {
     ) {
         List<RecommendationVO> recommendations = new ArrayList<>();
         Set<Long> usedIds = new LinkedHashSet<>();
-        Set<Long> allowedIds = allowedRecommendationIds(lastSearchResults, detailById);
+        Set<Long> allowedIds = allowedRecommendationIds(detailById);
 
         if (node.isArray()) {
             for (JsonNode item : node) {
@@ -602,14 +699,8 @@ public class RecommendServiceImpl implements RecommendService {
         return Collections.emptyList();
     }
 
-    private Set<Long> allowedRecommendationIds(List<LaptopListItemVO> lastSearchResults, Map<Long, LaptopDetailVO> detailById) {
-        Set<Long> ids = new LinkedHashSet<>(detailById.keySet());
-        for (LaptopListItemVO item : lastSearchResults) {
-            if (item.getId() != null) {
-                ids.add(item.getId());
-            }
-        }
-        return ids;
+    private Set<Long> allowedRecommendationIds(Map<Long, LaptopDetailVO> detailById) {
+        return new LinkedHashSet<>(detailById.keySet());
     }
 
     private List<RecommendationVO> buildFallbackRecommendations(
