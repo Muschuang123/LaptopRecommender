@@ -1294,60 +1294,6 @@ button:disabled {
   gap: 5px;
 }
 
-.homeFeatureStrip {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: min(1120px, 100%);
-  margin: 0 auto;
-  border: 1px solid rgba(220, 227, 241, 0.85);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 18px 48px rgba(49, 62, 109, 0.08);
-  backdrop-filter: blur(14px);
-}
-
-.homeFeatureStrip article {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 20px;
-}
-
-.homeFeatureStrip article + article {
-  border-left: 1px solid #e4e9f2;
-}
-
-.featureIcon {
-  display: inline-flex;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: #eeefff;
-  color: #595bdd;
-}
-
-.homeFeatureStrip article div > strong,
-.homeFeatureStrip article div > span {
-  display: block;
-}
-
-.homeFeatureStrip strong {
-  color: #23314a;
-  font-size: 14px;
-}
-
-.homeFeatureStrip article div span {
-  margin-top: 4px;
-  color: #718098;
-  font-size: 12px;
-  line-height: 1.55;
-}
-
 .appShell {
   background:
     radial-gradient(circle at 7% 6%, rgba(91, 92, 226, 0.13), transparent 27%),
@@ -1400,8 +1346,7 @@ button:disabled {
   padding: 16px;
 }
 
-.recommendResultsHeading > div > span,
-.chatIdentity > div > span {
+.recommendResultsHeading > div > span {
   color: #6668d9;
   font-size: 11px;
   font-weight: 800;
@@ -1410,8 +1355,7 @@ button:disabled {
 }
 
 .resultHeading h2,
-.recommendResultsHeading h2,
-.chatPanelHeading h2 {
+.recommendResultsHeading h2 {
   margin: 6px 0 0;
   color: #182540;
   font-size: 20px;
@@ -1638,8 +1582,7 @@ button:disabled {
   padding: 18px;
 }
 
-.recommendResultsHeading,
-.chatPanelHeading {
+.recommendResultsHeading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1674,48 +1617,6 @@ button:disabled {
 
 .chatPanel {
   border-radius: 20px;
-}
-
-.chatPanelHeading {
-  border-bottom: 1px solid #e7ecf5;
-  background: linear-gradient(135deg, rgba(245, 246, 255, 0.9), rgba(247, 253, 252, 0.86));
-  padding: 17px 18px;
-}
-
-.chatIdentity {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 11px;
-}
-
-.chatAvatar {
-  display: inline-flex;
-  width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #5a5ce0, #7779f3);
-  color: #fff;
-  box-shadow: 0 10px 20px rgba(91, 92, 226, 0.24);
-}
-
-.chatPanelHeading h2 {
-  margin-top: 3px;
-  font-size: 17px;
-}
-
-.chatShortcut {
-  flex: 0 0 auto;
-  border: 1px solid #e0e5f3;
-  border-radius: 999px;
-  background: #fff;
-  color: #75829a;
-  padding: 5px 9px;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .sessionToolbar {
@@ -1987,10 +1888,6 @@ button:disabled {
     justify-self: center;
   }
 
-  .homeFeatureStrip {
-    margin-bottom: 16px;
-  }
-
   .filterShell {
     gap: 14px;
   }
@@ -2083,20 +1980,6 @@ button:disabled {
     gap: 7px;
   }
 
-  .homeFeatureStrip {
-    grid-template-columns: 1fr;
-    border-radius: 18px;
-  }
-
-  .homeFeatureStrip article {
-    padding: 17px;
-  }
-
-  .homeFeatureStrip article + article {
-    border-top: 1px solid #e4e9f2;
-    border-left: 0;
-  }
-
   .recommendHeader {
     min-height: auto;
     border-radius: 18px;
@@ -2115,8 +1998,7 @@ button:disabled {
     padding: 14px;
   }
 
-  .resultHeading,
-  .chatPanelHeading {
+  .resultHeading {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -2132,15 +2014,6 @@ button:disabled {
   .recommendResultsHeading h2,
   .resultHeading h2 {
     font-size: 20px;
-  }
-
-  .chatPanelHeading {
-    gap: 12px;
-    padding: 15px;
-  }
-
-  .chatShortcut {
-    margin-left: 51px;
   }
 
   .messageList {
@@ -2280,33 +2153,6 @@ button:disabled {
   .resultHeading {
     align-items: flex-start;
   }
-}
-
-.homeCartButton {
-  position: absolute;
-  top: max(24px, env(safe-area-inset-top));
-  right: max(clamp(20px, 5vw, 96px), env(safe-area-inset-right));
-  z-index: 2;
-  display: inline-flex;
-  min-height: 42px;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid rgba(217, 225, 239, 0.9);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 12px 26px rgba(37, 52, 97, 0.1);
-  color: #37455f;
-  padding: 0 14px;
-  font-size: 14px;
-  font-weight: 800;
-  text-decoration: none;
-  transition: transform 0.16s ease, background 0.16s ease;
-}
-
-.homeCartButton:hover {
-  background: #fff;
-  color: #5557ce;
-  transform: translateY(-1px);
 }
 
 .filterHeader,
@@ -2495,14 +2341,6 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
-  .homeCartButton {
-    top: max(14px, env(safe-area-inset-top));
-    right: max(14px, env(safe-area-inset-right));
-    min-height: 38px;
-    padding: 0 11px;
-    font-size: 13px;
-  }
-
   .filterHeader,
   .recommendShell > .recommendHeader {
     grid-template-columns: auto minmax(0, 1fr);

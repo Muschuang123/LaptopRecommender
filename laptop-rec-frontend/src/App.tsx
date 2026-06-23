@@ -125,10 +125,6 @@ function HomePage({ navigate }: { navigate: (path: string) => void }) {
       <SkipLink />
       <main id="main-content" className="homeShell" tabIndex={-1}>
         <div className="ambientGrid" />
-        <AppLink className="homeCartButton" to="/cart" navigate={navigate}>
-          <ShoppingCart size={19} aria-hidden="true" />
-          购物车
-        </AppLink>
         <section className="hero">
           <div className="heroCopy">
             <div className="heroMark">
@@ -145,6 +141,10 @@ function HomePage({ navigate }: { navigate: (path: string) => void }) {
               <AppLink className="secondaryAction" to="/recommend" navigate={navigate}>
                 <Bot size={20} aria-hidden="true" />
                 对话式推荐
+              </AppLink>
+              <AppLink className="secondaryAction homeCartAction" to="/cart" navigate={navigate}>
+                <ShoppingCart size={20} aria-hidden="true" />
+                购物车
               </AppLink>
             </div>
             <ul className="heroProof">
@@ -207,29 +207,6 @@ function HomePage({ navigate }: { navigate: (path: string) => void }) {
               </div>
             </div>
           </div>
-        </section>
-        <section className="homeFeatureStrip" aria-label="系统能力">
-          <article>
-            <span className="featureIcon"><SlidersHorizontal size={19} aria-hidden="true" /></span>
-            <div>
-              <strong>按条件精确筛选</strong>
-              <span>从价格到重量，快速缩小候选范围。</span>
-            </div>
-          </article>
-          <article>
-            <span className="featureIcon"><Database size={19} aria-hidden="true" /></span>
-            <div>
-              <strong>配置细节清晰可查</strong>
-              <span>每项选择都有对应的数据依据。</span>
-            </div>
-          </article>
-          <article>
-            <span className="featureIcon"><Bot size={19} aria-hidden="true" /></span>
-            <div>
-              <strong>像顾问一样对话</strong>
-              <span>用自然语言描述需求，获得推荐解释。</span>
-            </div>
-          </article>
         </section>
       </main>
     </>
@@ -787,16 +764,6 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
       </aside>
 
         <section className="chatPanel" aria-label="推荐对话">
-          <div className="chatPanelHeading">
-            <div className="chatIdentity">
-              <span className="chatAvatar"><Bot size={20} aria-hidden="true" /></span>
-              <div>
-                <span>智能选机顾问</span>
-                <h2>告诉我你的使用场景</h2>
-              </div>
-            </div>
-            <span className="chatShortcut">Enter 发送</span>
-          </div>
           <div className="sessionToolbar">
           <select
             name="session"
