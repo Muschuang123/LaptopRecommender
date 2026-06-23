@@ -1,9 +1,11 @@
 import {
   ArrowLeft,
   Bot,
+  ChevronRight,
   Cpu,
   Database,
   HardDrive,
+  Laptop,
   Monitor,
   Plus,
   Search,
@@ -11,7 +13,6 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
-  Weight,
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -70,7 +71,6 @@ interface RecommendSession {
   title: string;
   messages: ChatMessage[];
   result: RecommendResponse | null;
-  selectedRecommendationKey: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -304,19 +304,10 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
           <h1>按条件筛选</h1>
           <p>筛选项来自数据库，结果实时组合。</p>
         </div>
-        <div className="recommendHeaderMeta">
-          <span>本地数据库</span>
-          <strong>{formatNumber(data?.total ?? 0)} 个结果</strong>
-        </div>
       </header>
 
       <section className="filterLayout">
         <form className="filterPanel" onSubmit={submitFilters}>
-          <div className="filterPanelIntro wideField">
-            <span>筛选器</span>
-            <h2>定义你的理想配置</h2>
-            <p>填写已知条件，其余项目保持不限即可。</p>
-          </div>
           <label className="field wideField">
             <span>关键词</span>
             <input
@@ -479,11 +470,8 @@ function FilterPage({ navigate }: { navigate: (path: string) => void }) {
 
         <section className="resultArea" aria-busy={loading}>
           <div className="resultHeading">
-            <div>
-              <span>笔记本目录</span>
-              <h2>匹配结果</h2>
-            </div>
-            <p>{loading ? "正在更新结果…" : `${formatNumber(data?.total ?? 0)} 个机型可供比较`}</p>
+            <h2>匹配结果</h2>
+            <p>{loading ? "正在更新结果…" : `${formatNumber(data?.total ?? 0)} 台候选机型`}</p>
           </div>
 
           <div className="resultScroller">
@@ -524,6 +512,10 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
   const [sessionState, setSessionState] = useState<RecommendSessionState>(() => loadRecommendSessionState());
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [selectedRecommendation, setSelectedRecommendation] = useState<{
+    detail: LaptopDetail;
+    reason: string;
+  } | null>(null);
 
   const activeSession = useMemo(() => {
     return (
@@ -535,6 +527,19 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
   const messages = activeSession.messages;
   const result = activeSession.result;
   const recommendations = result?.recommendations ?? [];
+  const recommendationCards = useMemo(
+    () => recommendations.flatMap((recommendation, index) => {
+      if (!recommendation.detail) {
+        return [];
+      }
+      return [{
+        key: `${recommendation.laptopId}-${index}`,
+        detail: recommendation.detail,
+        reason: recommendation.reason
+      }];
+    }),
+    [recommendations]
+  );
 
   useEffect(() => {
     saveRecommendSessionState(sessionState);
@@ -603,7 +608,6 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
       title: buildSessionTitle(outgoing),
       messages: outgoing,
       result: null,
-      selectedRecommendationKey: "",
       updatedAt: Date.now()
     }));
     setInput("");
@@ -617,7 +621,6 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
         ...session,
         messages: [...outgoing, { role: "assistant", content: reply }],
         result: normalizedResult,
-        selectedRecommendationKey: getRecommendationKey(normalizedResult.recommendations[0], 0),
         updatedAt: Date.now()
       }));
     } catch (exception) {
@@ -644,14 +647,6 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
     }, 0);
   };
 
-  const toggleRecommendation = (key: string) => {
-    updateSession(activeSession.id, (session) => ({
-      ...session,
-      selectedRecommendationKey: session.selectedRecommendationKey === key ? "" : key,
-      updatedAt: Date.now()
-    }));
-  };
-
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
@@ -675,10 +670,6 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
           <h1>DeepSeek推荐</h1>
           <p>仅查询本地数据库，结果可核对。</p>
         </div>
-        <div className="recommendHeaderMeta">
-          <span>本地数据库</span>
-          <strong>{formatNumber(recommendations.length)} 个结果</strong>
-        </div>
       </header>
 
        <aside className="recommendResults">
@@ -687,31 +678,22 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
             <span>候选机型</span>
             <h2>推荐清单</h2>
           </div>
-          <strong>{formatNumber(recommendations.length)}</strong>
+          <strong>{formatNumber(recommendationCards.length)}</strong>
         </div>
-        {recommendations.length ? (
-          <div className="recommendListScroller">
-            {recommendations.map((recommendation, index) => {
-              const key = getRecommendationKey(recommendation, index);
-              const expanded = key === activeSession.selectedRecommendationKey;
-              return expanded ? (
-                <RecommendationCard key={key} recommendation={recommendation} onCollapse={() => toggleRecommendation(key)} />
-              ) : (
-                <button
-                  key={key}
-                  className="recommendRow"
-                  type="button"
-                  aria-label={`查看 ${recommendationName(recommendation)} 的详情`}
-                  onClick={() => toggleRecommendation(key)}
-                >
-                  <span>{recommendationName(recommendation)}</span>
-                  <span className="recommendRowHint" aria-hidden="true">详情</span>
-                </button>
-              );
-            })}
+        {recommendationCards.length ? (
+          <div className="recommendListScroller laptopGrid">
+            {recommendationCards.map(({ key, detail, reason }) => (
+              <LaptopCard
+                key={key}
+                item={detail}
+                onDetail={() => setSelectedRecommendation({ detail, reason })}
+              />
+            ))}
           </div>
         ) : (
-          <div className="statusBox">推荐结果会显示在这里。</div>
+          <div className="statusBox">
+            {recommendations.length ? "推荐结果缺少可展示的机型详情。" : "推荐结果会显示在这里。"}
+          </div>
         )}
       </aside>
 
@@ -796,6 +778,13 @@ function RecommendPage({ navigate }: { navigate: (path: string) => void }) {
           </button>
         </form>
         </section>
+      {selectedRecommendation && (
+        <DetailModal
+          detail={selectedRecommendation.detail}
+          recommendationReason={selectedRecommendation.reason}
+          onClose={() => setSelectedRecommendation(null)}
+        />
+      )}
       </main>
     </>
   );
@@ -874,7 +863,7 @@ function LaptopCard({ item, onDetail }: { item: LaptopListItem; onDetail: () => 
           {item.imageUrl ? (
             <img src={item.imageUrl} alt={`${item.brandName} ${item.model} 笔记本电脑`} width={72} height={72} loading="lazy" />
           ) : (
-            <Database size={28} aria-hidden="true" />
+            <Laptop size={28} aria-hidden="true" />
           )}
           </div>
           <div className="titleBlock">
@@ -898,66 +887,34 @@ function LaptopCard({ item, onDetail }: { item: LaptopListItem; onDetail: () => 
             <Monitor size={16} aria-hidden="true" />
             {screen(item)}
           </span>
-          <span>
-            <Weight size={16} aria-hidden="true" />
-            {weight(item.weightKg)}
-          </span>
-        </div>
-        <div className="tagRow">
-          {[item.productType, item.usagePositioning, item.gpuType].filter(Boolean).map((tag) => (
-            <span key={tag}>{tag}</span>
-          ))}
         </div>
         <button className="detailButton" type="button" onClick={onDetail}>
           查看详情
+          <ChevronRight size={16} aria-hidden="true" />
         </button>
       </div>
     </article>
   );
 }
 
-function RecommendationCard({
-  recommendation,
-  onCollapse
+function DetailModal({
+  detail,
+  recommendationReason,
+  onClose
 }: {
-  recommendation: RecommendResponse["recommendations"][number];
-  onCollapse?: () => void;
+  detail: LaptopDetail;
+  recommendationReason?: string;
+  onClose: () => void;
 }) {
-  const detail = recommendation.detail;
-  return (
-    <article className="recommendCard">
-      <div className="recommendCardHead">
-        <h2>{detail ? `${detail.brandName} ${detail.model}` : `机型 #${recommendation.laptopId}`}</h2>
-        {onCollapse && (
-          <button className="cardToggleButton" type="button" onClick={onCollapse}>
-            收起
-          </button>
-        )}
-      </div>
-      <div className="recommendCardBody">
-        <p>{recommendation.reason}</p>
-        {detail && (
-          <div className="miniSpecs">
-            <span>{money(detail.latestPrice)}</span>
-            <span>{text(detail.cpuModel)}</span>
-            <span>{text(detail.gpuModel)}</span>
-            <span>{capacity(detail.memoryCapacityGb)} / {capacity(detail.storageCapacityGb)}</span>
-            <span>{screen(detail)}</span>
-            <span>{weight(detail.weightKg)}</span>
-          </div>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function DetailModal({ detail, onClose }: { detail: LaptopDetail; onClose: () => void }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const rows = [
     ["价格", money(detail.latestPrice)],
+    ["产品类型", text(detail.productType)],
+    ["用途定位", text(detail.usagePositioning)],
     ["CPU", joinText(detail.cpuBrand, detail.cpuModel)],
     ["CPU 核心/线程", joinText(detail.cpuCoreCount, detail.cpuThreadCount, "/")],
     ["GPU", joinText(detail.gpuBrand, detail.gpuModel)],
+    ["显卡类型", text(detail.gpuType)],
     ["显存", detail.gpuVramGb ? `${detail.gpuVramGb}GB` : "未知"],
     ["内存", joinText(capacity(detail.memoryCapacityGb), detail.memoryType)],
     ["硬盘", joinText(capacity(detail.storageCapacityGb), detail.storageType, " ")],
@@ -1000,7 +957,7 @@ function DetailModal({ detail, onClose }: { detail: LaptopDetail; onClose: () =>
             {detail.imageUrl ? (
               <img src={detail.imageUrl} alt={`${detail.brandName} ${detail.model} 笔记本电脑`} width={180} height={150} />
             ) : (
-              <Database size={42} aria-hidden="true" />
+              <Laptop size={42} aria-hidden="true" />
             )}
           </div>
           <div>
@@ -1009,6 +966,12 @@ function DetailModal({ detail, onClose }: { detail: LaptopDetail; onClose: () =>
             <p>{detail.rawTitle}</p>
           </div>
         </div>
+        {recommendationReason && (
+          <p className="recommendationReason">
+            <strong>推荐理由</strong>
+            {recommendationReason}
+          </p>
+        )}
         <dl className="detailGrid">
           {rows.map(([label, value]) => (
             <div key={label}>
@@ -1155,7 +1118,6 @@ function createRecommendSession(): RecommendSession {
     title: "新对话",
     messages: initialRecommendMessages,
     result: null,
-    selectedRecommendationKey: "",
     createdAt: now,
     updatedAt: now
   };
@@ -1173,7 +1135,6 @@ function normalizeRecommendSession(value: unknown): RecommendSession | null {
     title: typeof value.title === "string" && value.title.trim() ? value.title.trim() : buildSessionTitle(messages),
     messages: messages.length ? messages : initialRecommendMessages,
     result: isRecommendResponse(value.result) ? value.result : null,
-    selectedRecommendationKey: typeof value.selectedRecommendationKey === "string" ? value.selectedRecommendationKey : "",
     createdAt: typeof value.createdAt === "number" ? value.createdAt : Date.now(),
     updatedAt: typeof value.updatedAt === "number" ? value.updatedAt : Date.now()
   };
@@ -1229,21 +1190,6 @@ function isRecommendResponse(value: unknown): value is RecommendResponse {
     Array.isArray(value.recommendations) &&
     Array.isArray(value.followUpQuestions)
   );
-}
-
-function getRecommendationKey(recommendation: RecommendResponse["recommendations"][number] | undefined, index: number) {
-  if (!recommendation) {
-    return "";
-  }
-  return `${recommendation.laptopId}-${index}`;
-}
-
-function recommendationName(recommendation: RecommendResponse["recommendations"][number]) {
-  const detail = recommendation.detail;
-  if (detail) {
-    return joinText(detail.brandName, detail.model);
-  }
-  return `机型 #${recommendation.laptopId}`;
 }
 
 function normalizeAssistantReply(reply?: string, hasRecommendations = false) {
