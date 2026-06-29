@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Cpu,
   Database,
+  Download,
   HardDrive,
   Laptop,
   Monitor,
@@ -856,6 +857,9 @@ function CartPage({ navigate }: { navigate: (path: string) => void }) {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<LaptopDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportNote, setExportNote] = useState("");
+  const [exportNoteError, setExportNoteError] = useState("");
 
   const loadCart = useCallback(async () => {
     setLoading(true);
@@ -935,6 +939,30 @@ function CartPage({ navigate }: { navigate: (path: string) => void }) {
     }
   };
 
+  const openExportDialog = () => {
+    setExportNote("");
+    setExportNoteError("");
+    setExportDialogOpen(true);
+  };
+
+  const closeExportDialog = () => {
+    setExportDialogOpen(false);
+    setExportNoteError("");
+  };
+
+  const submitExport = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const note = exportNote.trim();
+    if (!note) {
+      setExportNoteError("请填写备注后再导出。");
+      return;
+    }
+    exportCartToJson(note, items);
+    setExportDialogOpen(false);
+    setExportNote("");
+    setExportNoteError("");
+  };
+
   return (
     <>
       <SkipLink />
@@ -997,6 +1025,10 @@ function CartPage({ navigate }: { navigate: (path: string) => void }) {
               <button className="ghostButton compactButton" type="button" onClick={toggleAll} disabled={pending}>
                 {allSelected ? "取消全选" : "全选"}
               </button>
+              <button className="ghostButton compactButton cartExportButton" type="button" onClick={openExportDialog} disabled={pending}>
+                <Download size={17} aria-hidden="true" />
+                导出 JSON
+              </button>
               <button className="ghostButton compactButton cartDeleteButton" type="button" onClick={removeSelected} disabled={!selectedCount || pending}>
                 <Trash2 size={17} aria-hidden="true" />
                 删除已选{selectedCount ? ` (${formatNumber(selectedCount)})` : ""}
@@ -1010,6 +1042,21 @@ function CartPage({ navigate }: { navigate: (path: string) => void }) {
         </section>
         {detailLoading && <div className="floatingStatus" role="status" aria-live="polite">正在读取详情…</div>}
         {selected && <DetailModal detail={selected} onClose={() => setSelected(null)} />}
+        {exportDialogOpen && (
+          <CartExportModal
+            note={exportNote}
+            itemCount={items.length}
+            error={exportNoteError}
+            onNoteChange={(value) => {
+              setExportNote(value);
+              if (exportNoteError && value.trim()) {
+                setExportNoteError("");
+              }
+            }}
+            onSubmit={submitExport}
+            onClose={closeExportDialog}
+          />
+        )}
       </main>
     </>
   );
@@ -1150,6 +1197,86 @@ function LaptopCard({
   );
 }
 
+function CartExportModal({
+  note,
+  itemCount,
+  error,
+  onNoteChange,
+  onSubmit,
+  onClose
+}: {
+  note: string;
+  itemCount: number;
+  error: string;
+  onNoteChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previouslyFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusTextarea = window.setTimeout(() => textareaRef.current?.focus(), 0);
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onCloseRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(focusTextarea);
+      window.removeEventListener("keydown", onKeyDown);
+      previouslyFocusedElement?.focus();
+    };
+  }, []);
+
+  return (
+    <div className="modalBackdrop">
+      <button className="modalDismissArea" type="button" aria-label="关闭导出备注" onClick={onClose} />
+      <form className="cartExportModal" role="dialog" aria-modal="true" aria-labelledby="cart-export-title" onSubmit={onSubmit}>
+        <button className="modalClose" type="button" aria-label="关闭导出备注" onClick={onClose}>
+          <X size={18} aria-hidden="true" />
+        </button>
+        <div className="cartExportHead">
+          <span className="cartExportIcon">
+            <Download size={22} aria-hidden="true" />
+          </span>
+          <div>
+            <h2 id="cart-export-title">导出购物车</h2>
+            <p>导出的 JSON 会包含备注、导出时间和当前 {formatNumber(itemCount)} 台机型。</p>
+          </div>
+        </div>
+        <label className="cartExportField">
+          <span>备注</span>
+          <textarea
+            ref={textareaRef}
+            value={note}
+            maxLength={500}
+            required
+            rows={4}
+            onChange={(event) => onNoteChange(event.target.value)}
+          />
+        </label>
+        {error && <p className="cartExportError" role="alert">{error}</p>}
+        <div className="cartExportActions">
+          <button className="ghostButton compactButton" type="button" onClick={onClose}>
+            取消
+          </button>
+          <button className="primaryButton compactButton" type="submit">
+            <Download size={17} aria-hidden="true" />
+            导出 JSON
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function DetailModal({
   detail,
   recommendationReason,
@@ -1285,6 +1412,48 @@ function formatRangeMax(value?: number | null, fallback = "1.5") {
 
 function formatNumber(value: number) {
   return numberFormatter.format(value);
+}
+
+function exportCartToJson(note: string, items: LaptopListItem[]) {
+  const exportedAt = new Date();
+  const payload = {
+    "备注": note,
+    "导出时间": formatExportDate(exportedAt),
+    "购物车中的内容": items
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `shopping-cart-${formatExportFileStamp(exportedAt)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function formatExportDate(date: Date) {
+  const year = date.getFullYear();
+  const month = padDatePart(date.getMonth() + 1);
+  const day = padDatePart(date.getDate());
+  const hour = padDatePart(date.getHours());
+  const minute = padDatePart(date.getMinutes());
+  const second = padDatePart(date.getSeconds());
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+}
+
+function formatExportFileStamp(date: Date) {
+  const year = date.getFullYear();
+  const month = padDatePart(date.getMonth() + 1);
+  const day = padDatePart(date.getDate());
+  const hour = padDatePart(date.getHours());
+  const minute = padDatePart(date.getMinutes());
+  const second = padDatePart(date.getSeconds());
+  return `${year}${month}${day}-${hour}${minute}${second}`;
+}
+
+function padDatePart(value: number) {
+  return String(value).padStart(2, "0");
 }
 
 function readFiltersFromSearch(search: string): LaptopFilters {
